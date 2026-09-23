@@ -18,14 +18,13 @@ no accounts, no servers, no network requests.
 Paste this into Claude Code or Codex on the Mac you want to track:
 
 ```text
-Install Clanker Tracker: clone https://github.com/iipanda/clanker-tracker into ~/Developer/clanker-tracker
-(or git pull it), run scripts/install.sh, and tell me what it printed and how to fix anything it stopped on.
+Install Clanker Tracker: download the latest release zip from https://github.com/iipanda/clanker-tracker with gh,
+unzip it into ~/Applications (replacing any older copy), run ClankerTracker.app/Contents/MacOS/ClankerTracker --setup, and tell me what it printed.
 ```
 
-[`scripts/install.sh`](scripts/install.sh) checks the requirements, builds the app (or downloads
-the latest release if Swift isn't installed), installs it to `~/Applications`, sets up tracking
-for Codex and Claude Code, and adds it to login items (`OPEN_AT_LOGIN=0` skips that). Nothing it
-installs is quarantined, so there's no Gatekeeper prompt.
+`--setup` checks Codex tracking, sets up the Claude Code collector, adds the app to login items,
+and starts it (`--no-open-at-login` skips the login item). A zip downloaded with `gh` isn't
+quarantined, so there's no Gatekeeper prompt.
 
 ## What it shows
 
@@ -97,20 +96,21 @@ Requires macOS 26 or later.
 you open it macOS says it can't verify the app: click **Done**, then **System Settings → Privacy &
 Security → Open Anyway**. (Or run `xattr -dr com.apple.quarantine /Applications/ClankerTracker.app`.)
 
-**Build from source** (needs Xcode 26 / Swift 6.2; no Gatekeeper prompt, since nothing is downloaded):
+**Build from source** (needs Xcode 26 / Swift 6.2):
 
 ```sh
 git clone https://github.com/iipanda/clanker-tracker.git
 cd clanker-tracker
-scripts/install.sh      # build, install, set up tracking; or scripts/build-app.sh to only build and install
+scripts/install.sh      # build, install, run --setup; or scripts/build-app.sh to only build and install
 ```
 
 Then:
 
 1. Click the ring in the menu bar → **Settings…**
 2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first if you want to see the edit).
-3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running
-   (`scripts/install.sh` does steps 2 and 3's login item for you).
+3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running.
+
+Or run `ClankerTracker.app/Contents/MacOS/ClankerTracker --setup` once, which does steps 2 and 3's login item for you.
 
 > [!TIP]
 > Rebuilding changes the ad-hoc signature, and macOS may then forget the notification and login-item
@@ -130,6 +130,7 @@ The binary takes a few flags that help while developing:
 
 | Flag | What it does |
 | --- | --- |
+| `--setup [--no-open-at-login]` | Checks Codex, sets up the Claude Code collector, adds the login item, starts the app |
 | `--dump` | Reads everything once and prints the current limits as JSON |
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |
@@ -163,7 +164,7 @@ Sources/ClankerCore/      model, forecast math, log parsers, file tailing + FSEv
 Sources/ClankerTracker/   the app: status item, popover, main window, settings (AppKit + SwiftUI)
 design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install
-scripts/install.sh        install + set up tracking (what the agent prompt runs)
+scripts/install.sh        build from source, install, run --setup
 scripts/release.sh        universal build, zip, GitHub release
 ```
 

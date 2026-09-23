@@ -39,6 +39,10 @@ if arguments.contains("--dump") {
     dispatchMain()
 }
 
+if arguments.contains("--setup") {
+    exit(Setup.run(openAtLogin: !arguments.contains("--no-open-at-login")))
+}
+
 if arguments.contains("--install-collector") || arguments.contains("--remove-collector") {
     // Same as Install / Remove in Settings → Data sources.
     let paths = AppPaths.standard
