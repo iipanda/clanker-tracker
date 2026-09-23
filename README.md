@@ -13,6 +13,35 @@ no accounts, no servers, no network requests.
   </picture>
 </p>
 
+## Install with an agent
+
+Paste this into Claude Code or Codex on the Mac you want to track:
+
+```text
+Install Clanker Tracker (https://github.com/iipanda/clanker-tracker) on this Mac and set up
+usage tracking for both Codex and Claude Code.
+
+1. Check the requirements: macOS 26 or later (`sw_vers -productVersion`), Swift 6.2 from
+   Xcode 26 (`swift --version`), and jq (`command -v jq`; it ships with macOS 15 and later).
+   If anything is missing, stop and tell me what to install.
+2. Clone the repo into ~/Developer/clanker-tracker (or `git pull` if it's already there), then run
+   `scripts/build-app.sh` from the repo. It builds the app, installs it to
+   ~/Applications/ClankerTracker.app and opens it. The first launch reads existing Codex logs,
+   which can take up to a minute.
+3. Codex needs no setup: the app reads ~/.codex/sessions. Check that folder exists; if it
+   doesn't, tell me Codex hasn't been used on this Mac yet.
+4. Set up Claude Code tracking by running
+   `~/Applications/ClankerTracker.app/Contents/MacOS/ClankerTracker --install-collector`.
+   It changes only the "statusLine" entry in ~/.claude/settings.json (or adds a small block to
+   my status line script) and keeps a backup. Show me the change it printed and the collector
+   state. Don't edit settings.json or the status line script yourself.
+5. Verify by running `~/Applications/ClankerTracker.app/Contents/MacOS/ClankerTracker --dump`
+   and summarize the limits it lists. Claude Code limits appear after my next message in a new
+   Claude Code session.
+6. Finish by telling me to allow notifications when macOS asks, that "Open at login" is in the
+   app's Settings → General, and that `--remove-collector` undoes step 4.
+```
+
 ## What it shows
 
 - **Menu bar icon**: a ring that fills with whichever limit is closest to running out, plus its
@@ -50,28 +79,25 @@ it's on the pessimistic side and it relaxes as idle hours drop out of the lookba
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |
-| **Claude Code** | Claude Code reports `rate_limits` only to its status line command. A small marked block in your status line script saves them whenever they change. | While Claude Code is running. |
+| **Claude Code** | Claude Code reports `rate_limits` only to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. | While Claude Code is running. |
 
 - **Codex**: only the main `codex` limit is tracked. The Spark (`codex_bengalfox`) and `premium`
   limits are ignored. The first launch reads the last 9 weeks of logs (about 20 s for ~20 GB);
   after that only new lines are read as files grow.
-- **Claude Code**: install the collector from **Settings → Data sources** (or with
-  `--install-collector`). It adds this block right after `input=$(cat)` in the script named by
-  `statusLine` in `~/.claude/settings.json`:
+- **Claude Code**: set up the collector from **Settings → Data sources** (or with
+  `--install-collector`). What it does depends on your status line:
 
-  ```sh
-  # >>> clanker-tracker >>>
-  ( d="${CLANKER_TRACKER_DIR:-$HOME/Library/Application Support/ClankerTracker}/claude"
-    [ -d "$d" ] || exit 0
-    rl=$(printf '%s' "$input" | jq -c '.rate_limits // empty' 2>/dev/null); [ -n "$rl" ] || exit 0
-    ...
-  ) </dev/null >/dev/null 2>&1 &
-  # <<< clanker-tracker <<<
-  ```
+  | Your status line | What the collector does |
+  | --- | --- |
+  | A shell script that reads `input=$(cat)` | Adds a marked block right after that line. The block saves `rate_limits` in the background and prints nothing, so your status line looks the same. A copy of the script is kept as `<script>.clanker-backup`. |
+  | Any other command (`npx ccstatusline`, a Python script, a one-liner, …) | Points `statusLine` at `~/.claude/clanker-statusline.sh`, which saves the limits, then runs your command with the same input and prints its output unchanged. |
+  | None | Points `statusLine` at the same script, which saves the limits and shows a simple status line: `clanker · Opus · 5h 12% · 7d 40%`. |
 
-  It runs in the background with all output discarded, so your status line prints exactly what it
-  did before. The original script is kept as `<script>.clanker-backup`, and **Remove** (or
-  `--remove-collector`) takes the block out again. It needs `jq`.
+  Only the `statusLine` entry in `~/.claude/settings.json` is edited; the rest of the file stays
+  byte-for-byte the same, and a backup is saved as `settings.json.clanker-backup`. Settings shows
+  the exact change before you install. **Remove** (or `--remove-collector`) puts the previous
+  `statusLine` back exactly (the managed script keeps a copy of it). The collector needs `jq`,
+  which ships with macOS 15 and later. Changes apply to new Claude Code sessions.
 
 Usage from other machines, or from claude.ai and Codex on the web, shows up at the next local
 reading. Until then the app shows the last known value and how old it is.
@@ -90,7 +116,7 @@ This builds a release, signs it, installs it to `~/Applications/ClankerTracker.a
 Then:
 
 1. Click the ring in the menu bar → **Settings…**
-2. Under **Data sources**, click **Install collector** for Claude Code.
+2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first if you want to see the edit).
 3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running.
 
 > [!TIP]
@@ -114,7 +140,7 @@ The binary takes a few flags that help while developing:
 | `--dump` | Reads everything once and prints the current limits as JSON |
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |
-| `--install-collector` / `--remove-collector` | Adds or removes the Claude Code status line block |
+| `--install-collector` / `--remove-collector` | Sets up or removes the Claude Code collector (prints the settings.json change) |
 | `--show-window` | Opens the main window at launch |
 
 ```sh
@@ -141,4 +167,4 @@ Everything lives in `~/Library/Application Support/ClankerTracker/`:
 - `history.json`: every limit window seen, compressed to the readings where usage changed. It's a
   cache: delete it together with `state.json` to re-read the logs from scratch.
 - `state.json`: how far into each log file the app has read.
-- `claude/latest.json`, `claude/history.jsonl`: written by the status line block.
+- `claude/latest.json`, `claude/history.jsonl`: written by the collector.
