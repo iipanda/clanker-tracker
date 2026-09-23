@@ -23,8 +23,7 @@ unzip it into ~/Applications (replacing any older copy), run ClankerTracker.app/
 ```
 
 `--setup` checks Codex tracking, sets up the Claude Code collector, adds the app to login items,
-and starts it (`--no-open-at-login` skips the login item). A zip downloaded with `gh` isn't
-quarantined, so there's no Gatekeeper prompt.
+and starts it (`--no-open-at-login` skips the login item).
 
 ## What it shows
 
