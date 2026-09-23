@@ -1,0 +1,835 @@
+<title>Clanker Tracker</title>
+<meta name="description" content="macOS menu bar and app design for tracking Claude Code and Codex usage limits.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #eeeef2;
+    --card: #ffffff;
+    --side: #f5f5f8;
+    --line: #e4e4ea;
+    --text: #16161a;
+    --muted: #6c6c77;
+    --faint: #a3a3ad;
+    --grid: #ececf0;
+    --track: #e7e7ed;
+    --accent: #7447ee;
+    --warn: #b0620a;
+    --crit: #c42f2a;
+    --ok: #0d7a5b;
+    --hover: #f2f2f6;
+    --select: #e8e3fb;
+    --tip-bg: #16161a;
+    --tip-text: #f5f5f7;
+    --wall: linear-gradient(140deg, #bcc8ec 0%, #dccff0 48%, #f1dccf 100%);
+    --menubar: rgba(255, 255, 255, 0.5);
+    --menubar-text: #111114;
+    --menubar-press: rgba(0, 0, 0, 0.1);
+    --pop: rgba(248, 248, 250, 0.86);
+    --pop-line: rgba(0, 0, 0, 0.08);
+    --pop-shadow: 0 0 0 0.5px rgba(0,0,0,.18), 0 12px 40px rgba(30, 20, 60, 0.22);
+    --win-shadow: 0 0 0 0.5px rgba(0,0,0,.14), 0 20px 60px rgba(30, 20, 60, 0.16);
+    --switch-off: #d9d9e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0c0c0e;
+      --card: #18181b;
+      --side: #1d1d21;
+      --line: #28282d;
+      --text: #f1f1f3;
+      --muted: #8e8e98;
+      --faint: #5a5a63;
+      --grid: #242429;
+      --track: #2a2a30;
+      --accent: #9d70ff;
+      --warn: #f2b13a;
+      --crit: #ff6b61;
+      --ok: #55d3a4;
+      --hover: #222227;
+      --select: #2c2442;
+      --tip-bg: #f1f1f3;
+      --tip-text: #16161a;
+      --wall: linear-gradient(140deg, #1c2140 0%, #2c2144 50%, #3b2830 100%);
+      --menubar: rgba(24, 24, 30, 0.5);
+      --menubar-text: #f3f3f5;
+      --menubar-press: rgba(255, 255, 255, 0.16);
+      --pop: rgba(36, 36, 42, 0.84);
+      --pop-line: rgba(255, 255, 255, 0.09);
+      --pop-shadow: 0 0 0 0.5px rgba(255,255,255,.12), 0 12px 40px rgba(0, 0, 0, 0.5);
+      --win-shadow: 0 0 0 0.5px rgba(255,255,255,.1), 0 20px 60px rgba(0, 0, 0, 0.5);
+      --switch-off: #3a3a42;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0c0c0e;
+    --card: #18181b;
+    --side: #1d1d21;
+    --line: #28282d;
+    --text: #f1f1f3;
+    --muted: #8e8e98;
+    --faint: #5a5a63;
+    --grid: #242429;
+    --track: #2a2a30;
+    --accent: #9d70ff;
+    --warn: #f2b13a;
+    --crit: #ff6b61;
+    --ok: #55d3a4;
+    --hover: #222227;
+    --select: #2c2442;
+    --tip-bg: #f1f1f3;
+    --tip-text: #16161a;
+    --wall: linear-gradient(140deg, #1c2140 0%, #2c2144 50%, #3b2830 100%);
+    --menubar: rgba(24, 24, 30, 0.5);
+    --menubar-text: #f3f3f5;
+    --menubar-press: rgba(255, 255, 255, 0.16);
+    --pop: rgba(36, 36, 42, 0.84);
+    --pop-line: rgba(255, 255, 255, 0.09);
+    --pop-shadow: 0 0 0 0.5px rgba(255,255,255,.12), 0 12px 40px rgba(0, 0, 0, 0.5);
+    --win-shadow: 0 0 0 0.5px rgba(255,255,255,.1), 0 20px 60px rgba(0, 0, 0, 0.5);
+    --switch-off: #3a3a42;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Geist", "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    padding-inline: 16px;
+    padding-block: 40px 64px;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+  p, h1, h2, h3, dl, dd { margin: 0; }
+  button { font: inherit; color: inherit; }
+  button:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- board ---------- */
+  .board { max-width: 1100px; margin-inline: auto; display: grid; gap: 56px; }
+  .board-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; }
+  .board-head h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
+  .board-head p { color: var(--muted); }
+  .section { display: grid; gap: 14px; }
+  .section-head { display: grid; gap: 4px; max-width: 64ch; }
+  .section-head h2 { font-size: 15px; font-weight: 600; }
+  .section-head p { color: var(--muted); }
+
+  /* ---------- desktop scene ---------- */
+  .scene { position: relative; height: 410px; border-radius: 14px; overflow: hidden; background: var(--wall); }
+  .menubar {
+    height: 26px; display: flex; justify-content: space-between; align-items: center; padding-inline: 10px;
+    background: var(--menubar); color: var(--menubar-text); backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    font-size: 13px; white-space: nowrap;
+  }
+  .mb-left, .mb-right { display: flex; align-items: center; gap: 4px; }
+  .mb-left span { padding: 2px 7px; }
+  .mb-left .mb-app { font-weight: 600; }
+  .mb-sys { display: inline-flex; align-items: center; padding: 2px 6px; }
+  .mb-sys svg { display: block; }
+  .mb-clock { padding: 2px 6px; }
+  .mb-item {
+    display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border-radius: 5px;
+    border: 0; background: transparent; cursor: default; font-weight: 500; font-size: 13px;
+  }
+  .mb-item svg { display: block; }
+  .mb-item.pressed { background: var(--menubar-press); }
+  .mb-item.warn .mb-val, .mb-item.warn svg { color: var(--warn); }
+  .mb-item.hit .mb-val, .mb-item.hit svg { color: var(--crit); }
+  .mb-item .mb-sep { opacity: .45; }
+
+  /* popover */
+  .pop {
+    position: absolute; top: 32px; width: min(320px, calc(100% - 16px)); border-radius: 12px; padding: 6px;
+    background: var(--pop); box-shadow: var(--pop-shadow);
+    backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  }
+  .pop-tool { padding: 10px 10px 6px; display: grid; gap: 12px; }
+  .pop-tool + .pop-tool { border-top: 1px solid var(--pop-line); padding-top: 12px; }
+  .pop-tool-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .pop-tool-head h3 { font-size: 13px; font-weight: 600; }
+  .pop-tool-head span { color: var(--muted); font-size: 11px; }
+  .limit { display: grid; gap: 5px; }
+  .limit-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .limit-row .pct { font-weight: 600; }
+  .limit .bar { height: 5px; }
+  .limit-sub { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 11.5px; }
+  .limit-sub .st.warn { color: var(--warn); font-weight: 500; }
+  .limit-sub .st.hit { color: var(--crit); font-weight: 500; }
+  .pop-sep { height: 1px; background: var(--pop-line); margin: 6px 4px; }
+  .pop-menu { display: grid; }
+  .pop-menu button {
+    display: flex; justify-content: space-between; width: 100%; text-align: left; border: 0; background: transparent;
+    padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  }
+  .pop-menu button:hover { background: var(--accent); color: #fff; }
+  .pop-menu button:hover kbd { color: rgba(255,255,255,.8); }
+  .pop-menu kbd { font: inherit; color: var(--muted); }
+  .pop-updated { color: var(--muted); font-size: 11.5px; padding: 2px 10px 4px; }
+
+  /* menu bar states */
+  .states { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+  .state { display: grid; gap: 8px; }
+  .state .strip { border-radius: 10px; overflow: hidden; background: var(--wall); padding-bottom: 18px; }
+  .state .menubar { justify-content: flex-end; }
+  .state h3 { font-size: 13px; font-weight: 600; }
+  .state p { color: var(--muted); }
+
+  /* ---------- app window ---------- */
+  .window { display: grid; grid-template-columns: 210px 1fr; border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: var(--win-shadow); min-height: 640px; }
+  .side { background: var(--side); border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 18px; }
+  .lights { display: flex; gap: 8px; padding-left: 6px; }
+  .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+  .nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .nav-label { color: var(--faint); font-size: 11px; font-weight: 600; padding: 12px 10px 4px; }
+  .nav button {
+    display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: transparent; text-align: left;
+    padding: 6px 10px; border-radius: 7px; cursor: pointer;
+  }
+  .nav button:hover { background: var(--hover); }
+  .nav button[aria-current="page"] { background: var(--select); font-weight: 500; }
+  .nav .nav-pct { margin-left: auto; color: var(--muted); font-size: 12px; }
+  .nav .nav-pct.warn { color: var(--warn); font-weight: 500; }
+  .nav .nav-spacer { flex: 1; }
+  .nav svg { flex: none; color: var(--muted); }
+
+  .win-main { min-width: 0; display: flex; flex-direction: column; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+  .toolbar h3 { font-size: 14px; font-weight: 600; }
+  .toolbar-right { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+  .icon-btn { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 6px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+  .icon-btn:hover { background: var(--hover); color: var(--text); }
+  .win-body { padding: 24px; display: grid; gap: 28px; align-content: start; }
+
+  /* cards */
+  .cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+  .card { min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+  .card-main { padding: 20px; display: grid; gap: 20px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 30px; }
+  .top h4 { font-size: 14px; font-weight: 600; margin: 0; }
+  .top p { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .seg { display: inline-flex; background: var(--track); border-radius: 7px; padding: 2px; }
+  .seg button { font-size: 12px; font-weight: 500; color: var(--muted); background: transparent; border: 0; border-radius: 5px; padding: 3px 10px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 0.5px 1.5px rgba(0,0,0,.12); }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--text); }
+  .win-tag { color: var(--muted); font-size: 12px; }
+
+  .headline { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px 16px; flex-wrap: wrap; }
+  .used { font-size: 40px; font-weight: 500; letter-spacing: -0.035em; line-height: 1; }
+  .used-sub { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .status { text-align: right; }
+  .status-main { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; font-size: 13px; }
+  .status-main::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .status.warn .status-main { color: var(--warn); }
+  .status.ok .status-main { color: var(--ok); }
+  .status-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  .bar { height: 4px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width 500ms cubic-bezier(.2,.8,.2,1); }
+  .card .bar { margin-top: -6px; }
+
+  .chart-wrap { display: grid; gap: 10px; }
+  .chart { position: relative; height: 150px; touch-action: pan-y; }
+  .chart svg { position: absolute; inset: 0; display: block; overflow: visible; }
+  .axis { fill: var(--faint); font-size: 11px; font-family: inherit; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .usage { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .proj { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; stroke-linecap: round; opacity: .7; }
+  .even { fill: none; stroke: var(--faint); stroke-width: 1; stroke-dasharray: 1 4; stroke-linecap: round; }
+  .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+  .runout { fill: var(--card); stroke: var(--warn); stroke-width: 1.75; }
+  .guide { stroke: var(--faint); stroke-width: 1; }
+  .hover-dot { fill: var(--card); stroke: var(--accent); stroke-width: 2; }
+  .tip { position: absolute; top: 0; pointer-events: none; white-space: nowrap; background: var(--tip-bg); color: var(--tip-text); border-radius: 6px; padding: 5px 8px; font-size: 12px; line-height: 1.35; }
+  .tip span { opacity: .65; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 11.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend svg { display: block; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .stat dt { color: var(--muted); font-size: 11.5px; }
+  .stat dd { font-size: 15px; font-weight: 500; margin-top: 3px; }
+  .stat dd small { font-size: 11.5px; font-weight: 400; color: var(--muted); margin-left: 2px; }
+
+  .details { border-top: 1px solid var(--line); }
+  .details summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; color: var(--muted); }
+  .details summary::-webkit-details-marker { display: none; }
+  .details summary:hover { background: var(--hover); color: var(--text); }
+  .details summary svg { transition: transform 180ms ease; }
+  .details[open] summary svg { transform: rotate(180deg); }
+  .details dl { display: grid; grid-template-columns: auto 1fr; gap: 9px 20px; padding: 4px 20px 18px; }
+  .details dt { color: var(--muted); }
+  .details dd { text-align: right; }
+
+  /* history */
+  .history { display: grid; gap: 14px; }
+  .block-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .block-head h4 { font-size: 13px; font-weight: 600; margin: 0; }
+  .block-head p { color: var(--muted); font-size: 12px; }
+  .hist-row { display: grid; grid-template-columns: 110px 1fr; align-items: end; gap: 16px; }
+  .hist-name { color: var(--muted); padding-bottom: 2px; }
+  .hist-bars { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; height: 64px; align-items: end; border-bottom: 1px solid var(--line); background: linear-gradient(var(--grid), var(--grid)) top / 100% 1px no-repeat; }
+  .hist-bars span { display: block; width: 100%; max-width: 26px; justify-self: center; background: var(--accent); border-radius: 3px 3px 0 0; opacity: .85; min-height: 2px; }
+  .hist-bars span.hit { background: var(--warn); opacity: 1; }
+  .hist-bars span.now { opacity: .35; }
+  .hist-axis { display: grid; grid-template-columns: 110px 1fr; gap: 16px; }
+  .hist-axis div { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; color: var(--faint); font-size: 11px; text-align: center; }
+  .hist-key { display: flex; gap: 14px; color: var(--muted); font-size: 11.5px; }
+  .hist-key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); margin-right: 5px; vertical-align: -0.5px; }
+  .hist-key i.hit { background: var(--warn); }
+
+  /* settings */
+  .settings { display: grid; gap: 24px; max-width: 620px; }
+  .set-group { display: grid; gap: 8px; }
+  .set-group h4 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 2px 4px; }
+  .set-box { border: 1px solid var(--line); border-radius: 10px; }
+  .set-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 11px 14px; }
+  .set-row + .set-row { border-top: 1px solid var(--line); }
+  .set-row .hint { color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .set-row code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; color: var(--muted); }
+  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); font-size: 12px; white-space: nowrap; }
+  .conn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .switch { position: relative; width: 32px; height: 19px; flex: none; border-radius: 999px; border: 0; background: var(--switch-off); cursor: pointer; transition: background 150ms; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 150ms; }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { transform: translateX(13px); }
+  select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+
+  /* notification */
+  .notif-stage { border-radius: 14px; background: var(--wall); padding: 28px 16px; display: flex; justify-content: center; }
+  .notif { width: min(360px, 100%); display: flex; gap: 11px; padding: 12px 14px; border-radius: 14px; background: var(--pop); box-shadow: var(--pop-shadow); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); }
+  .notif-body { min-width: 0; flex: 1; }
+  .notif-top { display: flex; justify-content: space-between; color: var(--muted); font-size: 11.5px; }
+  .notif h3 { font-size: 13px; font-weight: 600; margin-top: 2px; }
+  .notif p.msg { margin-top: 1px; }
+  .app-icon { flex: none; width: 36px; height: 36px; display: block; }
+
+  @media (max-width: 760px) {
+    .window { grid-template-columns: 1fr; }
+    .side { border-right: 0; border-bottom: 1px solid var(--line); gap: 12px; }
+    .nav { flex-direction: row; overflow-x: auto; }
+    .nav-label, .nav-spacer { display: none; }
+    .nav button { width: auto; white-space: nowrap; }
+    .mb-left span:not(.mb-app) { display: none; }
+    .hist-row, .hist-axis { grid-template-columns: 76px 1fr; gap: 10px; }
+  }
+  @media (max-width: 440px) {
+    .win-body { padding: 16px; }
+    .card-main { padding: 16px; }
+    .used { font-size: 34px; }
+    .toolbar { padding-inline: 16px; }
+    .mb-sys { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar > span, .details summary svg, .switch, .switch::after { transition: none; }
+  }
+</style>
+
+<main class="board">
+  <header class="board-head">
+    <h1>Clanker Tracker</h1>
+    <p>macOS app design · sample data</p>
+  </header>
+
+  <section class="section" aria-labelledby="s-menubar">
+    <div class="section-head">
+      <h2 id="s-menubar">Menu bar</h2>
+      <p>One glance: the icon fills with the limit closest to running out. Click it for every limit at once, with when each runs out or resets.</p>
+    </div>
+    <div class="scene" id="scene">
+      <div class="menubar">
+        <div class="mb-left"><span class="mb-app">Finder</span><span>File</span><span>Edit</span><span>View</span><span>Go</span><span>Window</span></div>
+        <div class="mb-right">
+          <button type="button" class="mb-item pressed" id="mb-main" aria-expanded="true" aria-controls="pop"></button>
+          <span class="mb-sys" aria-hidden="true"><svg width="16" height="12" viewBox="0 0 16 12"><path d="M8 11.2 5.6 8.6a3.4 3.4 0 0 1 4.8 0L8 11.2Z" fill="currentColor"/><path d="M3.6 6.6a6.2 6.2 0 0 1 8.8 0M1.4 4.3a9.4 9.4 0 0 1 13.2 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg></span>
+          <span class="mb-sys" aria-hidden="true"><svg width="24" height="12" viewBox="0 0 24 12"><rect x=".75" y=".75" width="19.5" height="10.5" rx="3" stroke="currentColor" stroke-opacity=".45" stroke-width="1.2" fill="none"/><rect x="2.5" y="2.5" width="12" height="7" rx="1.5" fill="currentColor"/><path d="M22 4.2v3.6" stroke="currentColor" stroke-opacity=".45" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+          <span class="mb-clock" id="clock"></span>
+        </div>
+      </div>
+      <div class="pop" id="pop" role="dialog" aria-label="Usage summary"></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="s-states">
+    <div class="section-head">
+      <h2 id="s-states">Menu bar states</h2>
+      <p>Monochrome like every other menu bar icon until something needs you. Color appears only when a limit will run out before it resets.</p>
+    </div>
+    <div class="states" id="states"></div>
+  </section>
+
+  <section class="section" aria-labelledby="s-app">
+    <div class="section-head">
+      <h2 id="s-app">App window</h2>
+      <p>The full picture: burn chart per limit, forecast, and how past weeks ended. Sidebar and settings are clickable.</p>
+    </div>
+    <div class="window" id="window">
+      <aside class="side">
+        <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+        <nav class="nav" id="nav" aria-label="App sections"></nav>
+      </aside>
+      <div class="win-main">
+        <header class="toolbar">
+          <h3 id="view-title">Overview</h3>
+          <div class="toolbar-right">
+            <span data-updated></span>
+            <button type="button" class="icon-btn" id="refresh" aria-label="Refresh now"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+        </header>
+        <div class="win-body" id="view"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="s-notif">
+    <div class="section-head">
+      <h2 id="s-notif">Notification</h2>
+      <p>Sent once per window, when your current pace would hit 100% before the reset. Not on every percentage point.</p>
+    </div>
+    <div class="notif-stage" id="notif"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const HOUR = 3600e3;
+  const NOW = Date.now();
+  const UPDATED_AGO = 38;
+
+  // Sample limits. Codex Pro only reports a weekly window; Claude Code has 5-hour and weekly.
+  const TOOLS = [
+    {
+      id: "claude", name: "Claude Code", plan: "Max plan", active: "5h",
+      windows: {
+        "5h": { len: 5, elapsed: 3.4, lookback: 1, keys: [[0,0],[0.5,8],[1.2,15],[1.8,22],[2.4,32],[3.0,56],[3.4,72]] },
+        "7d": { len: 168, elapsed: 100.8, lookback: 6, keys: [[0,0],[3,4],[9,9],[14,9],[27,14],[33,19],[38,19],[51,24],[57,29],[62,29],[75,31],[81,35],[86,35],[99,38],[100.8,41]] }
+      },
+      history: [62, 88, 100, 74, 55, 93, 100]
+    },
+    {
+      id: "codex", name: "Codex", plan: "Pro plan", active: "7d",
+      windows: {
+        "7d": { len: 168, elapsed: 60, lookback: 6, keys: [[0,0],[4,6],[10,12],[14,12],[26,20],[33,31],[38,31],[50,40],[53,51],[54,52],[60,53.5]] }
+      },
+      history: [30, 45, 38, 70, 52, 61, 48]
+    }
+  ];
+
+  // ---------- math ----------
+  function interp(keys, t) {
+    if (t <= keys[0][0]) return keys[0][1];
+    for (let i = 1; i < keys.length; i++) {
+      const [t1, v1] = keys[i], [t0, v0] = keys[i - 1];
+      if (t <= t1) return v0 + (v1 - v0) * (t - t0) / (t1 - t0);
+    }
+    return keys[keys.length - 1][1];
+  }
+  function rng(seed) {
+    return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  function series(w, seed) {
+    const rand = rng(seed), steps = w.len > 24 ? 600 : 180, dt = w.len / steps, pts = [];
+    let prev = 0;
+    for (let t = 0; t < w.elapsed; t += dt) {
+      const base = interp(w.keys, t);
+      const v = Math.max(prev, Math.min(base + 0.35, base + (rand() - 0.5) * 0.7));
+      pts.push([t, v]); prev = v;
+    }
+    pts.push([w.elapsed, interp(w.keys, w.elapsed)]);
+    return pts;
+  }
+  function stats(w) {
+    const used = interp(w.keys, w.elapsed);
+    const left = w.len - w.elapsed;
+    const span = Math.min(w.lookback, w.elapsed);
+    const pace = (used - interp(w.keys, w.elapsed - span)) / span;
+    const sustainable = (100 - used) / left;
+    const runout = pace > 0 ? (100 - used) / pace : Infinity;
+    const start = NOW - w.elapsed * HOUR;
+    return {
+      used, left, pace, sustainable, runout,
+      runsOut: runout < left,
+      projected: Math.min(100, used + pace * left),
+      ratio: sustainable > 0 ? pace / sustainable : Infinity,
+      even: w.elapsed / w.len * 100,
+      start, reset: start + w.len * HOUR
+    };
+  }
+  // The limit closest to running out: anything that runs out first, soonest; otherwise the fullest.
+  function tightest(tools) {
+    const all = tools.flatMap(t => Object.entries(t.windows).map(([k, w]) => ({ tool: t, key: k, w, s: stats(w) })));
+    const out = all.filter(l => l.s.runsOut).sort((a, b) => a.s.runout - b.s.runout);
+    return out[0] || all.sort((a, b) => b.s.used - a.s.used)[0];
+  }
+
+  // ---------- formatting ----------
+  const fmtIn = h => h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 24 ? `${h.toFixed(1)} h` : `${(h / 24).toFixed(1)} days`;
+  const fmtClock = ms => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const fmtDayClock = ms => new Date(ms).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const fmtWhen = (ms, short) => short ? fmtClock(ms) : fmtDayClock(ms);
+  const fmtPct = (v, d = 0) => `${v.toFixed(d)}%`;
+  const fmtAgo = s => s < 60 ? `${s}s ago` : `${Math.floor(s / 60)} min ago`;
+  const windowName = w => w.len < 24 ? `${w.len}-hour` : "weekly";
+  const limitLabel = w => w.len < 24 ? `${w.len}-hour` : "Weekly";
+
+  const gauge = (pct, size = 15) => {
+    const r = 5.25, c = 2 * Math.PI * r, f = Math.max(0, Math.min(100, pct)) / 100 * c;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 15 15" aria-hidden="true"><circle cx="7.5" cy="7.5" r="${r}" stroke="currentColor" stroke-opacity=".3" stroke-width="2.2" fill="none"/><circle cx="7.5" cy="7.5" r="${r}" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-dasharray="${f} ${c}" transform="rotate(-90 7.5 7.5)"/></svg>`;
+  };
+  const APP_ICON = `<svg class="app-icon" viewBox="0 0 36 36" aria-hidden="true"><defs><linearGradient id="ai" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a2140"/><stop offset="1" stop-color="#15131c"/></linearGradient></defs><rect width="36" height="36" rx="8.5" fill="url(#ai)"/><circle cx="18" cy="18" r="9.5" stroke="#ffffff" stroke-opacity=".18" stroke-width="3.2" fill="none"/><circle cx="18" cy="18" r="9.5" stroke="#a47bff" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-dasharray="43 60" transform="rotate(-90 18 18)"/></svg>`;
+  const ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  const swatch = cls => `<svg width="16" height="6" aria-hidden="true"><line x1="1" y1="3" x2="15" y2="3" class="${cls}"/></svg>`;
+
+  const settings = { menubar: "tightest", notifyRunout: true, notifyThreshold: true, threshold: "80", notifyReset: false, login: true, refresh: "60" };
+  const updatedText = () => `Updated ${fmtAgo(UPDATED_AGO + Math.floor((Date.now() - NOW) / 1000))}`;
+
+  // ---------- menu bar item ----------
+  function menubarItem(el, mode) {
+    const t = tightest(TOOLS);
+    const state = t.s.used >= 100 ? "hit" : t.s.runsOut ? "warn" : "";
+    el.className = `mb-item ${state} ${el.id === "mb-main" && !document.getElementById("pop").hidden ? "pressed" : ""}`;
+    if (mode === "icon") el.innerHTML = gauge(t.s.used);
+    else if (mode === "both") el.innerHTML = TOOLS.map(tool => {
+      const tt = tightest([tool]), warn = tt.s.runsOut;
+      return `<span class="${warn ? "" : ""}" style="display:inline-flex;align-items:center;gap:4px;${warn ? "color:var(--warn)" : ""}">${gauge(tt.s.used)}<span>${fmtPct(tt.s.used)}</span></span>`;
+    }).join('<span class="mb-sep">·</span>');
+    else el.innerHTML = `${gauge(t.s.used)}<span class="mb-val">${fmtPct(t.s.used)}</span>`;
+    el.setAttribute("aria-label", `Clanker Tracker: ${t.tool.name} ${windowName(t.w)} limit ${fmtPct(t.s.used)} used`);
+  }
+
+  // ---------- popover ----------
+  function renderPopover() {
+    const pop = document.getElementById("pop");
+    pop.innerHTML = TOOLS.map(tool => `
+      <div class="pop-tool">
+        <div class="pop-tool-head"><h3>${tool.name}</h3><span>${tool.plan}</span></div>
+        ${Object.values(tool.windows).map(w => {
+          const s = stats(w), short = w.len < 24;
+          const st = s.runsOut
+            ? `<span class="st warn">Runs out ~${fmtWhen(NOW + s.runout * HOUR, true)}</span>`
+            : `<span class="st">On track · ~${fmtPct(s.projected)} at reset</span>`;
+          return `<div class="limit">
+            <div class="limit-row"><span>${limitLabel(w)}</span><span class="pct">${fmtPct(s.used)}</span></div>
+            <div class="bar"><span style="width:${s.used}%"></span></div>
+            <div class="limit-sub">${st}<span>Resets ${short ? fmtClock(s.reset) : new Date(s.reset).toLocaleDateString([], { weekday: "short" })}</span></div>
+          </div>`;
+        }).join("")}
+      </div>`).join("") + `
+      <div class="pop-sep"></div>
+      <p class="pop-updated" data-updated></p>
+      <div class="pop-menu">
+        <button type="button" data-open>Open Clanker Tracker <kbd>⌘O</kbd></button>
+        <button type="button" data-open-settings>Settings… <kbd>⌘,</kbd></button>
+        <button type="button">Quit <kbd>⌘Q</kbd></button>
+      </div>`;
+    pop.querySelector("[data-open]").addEventListener("click", () => { setView("overview"); document.getElementById("window").scrollIntoView({ behavior: "smooth", block: "start" }); });
+    pop.querySelector("[data-open-settings]").addEventListener("click", () => { setView("settings"); document.getElementById("window").scrollIntoView({ behavior: "smooth", block: "start" }); });
+  }
+  function placePopover() {
+    const scene = document.getElementById("scene"), item = document.getElementById("mb-main"), pop = document.getElementById("pop");
+    const sr = scene.getBoundingClientRect(), ir = item.getBoundingClientRect();
+    const right = sr.right - ir.right;
+    pop.style.right = `${Math.max(8, Math.min(right, sr.width - pop.offsetWidth - 8))}px`;
+  }
+
+  // ---------- states ----------
+  function renderStates() {
+    const demo = [
+      { title: "Calm", text: "Monochrome. Shows the fullest limit.", html: `${gauge(41)}<span class="mb-val">41%</span>`, cls: "" },
+      { title: "Running hot", text: "Amber when your pace would hit 100% before the reset.", html: `${gauge(72)}<span class="mb-val">72%</span>`, cls: "warn" },
+      { title: "Limit hit", text: "Counts down to the reset instead of showing 100%.", html: `${gauge(100)}<span class="mb-val">1:12</span>`, cls: "hit" }
+    ];
+    document.getElementById("states").innerHTML = demo.map(d => `
+      <div class="state">
+        <div class="strip"><div class="menubar"><div class="mb-right"><span class="mb-item ${d.cls}">${d.html}</span><span class="mb-clock">${new Date(NOW).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div></div></div>
+        <h3>${d.title}</h3><p>${d.text}</p>
+      </div>`).join("");
+  }
+
+  // ---------- notification ----------
+  function renderNotif() {
+    const t = tightest(TOOLS), s = t.s;
+    document.getElementById("notif").innerHTML = s.runsOut ? `
+      <div class="notif">${APP_ICON}
+        <div class="notif-body">
+          <div class="notif-top"><span>Clanker Tracker</span><span>now</span></div>
+          <h3>${t.tool.name} ${windowName(t.w)} limit runs out around ${fmtClock(NOW + s.runout * HOUR)}</h3>
+          <p class="msg">You're at ${fmtPct(s.used)} and using about ${s.pace.toFixed(0)}% an hour. It resets at ${fmtWhen(s.reset, t.w.len < 24)}.</p>
+        </div>
+      </div>` : "";
+  }
+
+  // ---------- app window ----------
+  let view = "overview";
+  const NAV_ICONS = {
+    overview: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.4"/></svg>',
+    tool: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M2.5 12.5 6 8.5l2.5 2 5-6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    settings: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M3.6 12.4l1.2-1.2M11.2 4.8l1.2-1.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
+  };
+
+  function renderNav() {
+    const nav = document.getElementById("nav");
+    const item = (id, label, icon, extra = "") => `<button type="button" data-view="${id}" ${view === id ? 'aria-current="page"' : ""}>${icon}${label}${extra}</button>`;
+    nav.innerHTML = item("overview", "Overview", NAV_ICONS.overview)
+      + `<p class="nav-label">Tools</p>`
+      + TOOLS.map(t => { const tt = tightest([t]); return item(t.id, t.name, NAV_ICONS.tool, `<span class="nav-pct ${tt.s.runsOut ? "warn" : ""}">${fmtPct(tt.s.used)}</span>`); }).join("")
+      + `<div class="nav-spacer"></div>` + item("settings", "Settings", NAV_ICONS.settings);
+    nav.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+  }
+
+  function setView(v) {
+    view = v;
+    renderNav();
+    const body = document.getElementById("view");
+    const title = v === "overview" ? "Overview" : v === "settings" ? "Settings" : TOOLS.find(t => t.id === v).name;
+    document.getElementById("view-title").textContent = title;
+    body.innerHTML = "";
+    if (v === "settings") { body.appendChild(settingsView()); tick(); return; }
+    const tools = v === "overview" ? TOOLS : TOOLS.filter(t => t.id === v);
+    const cards = document.createElement("div");
+    cards.className = "cards";
+    tools.forEach(t => cards.appendChild(makeCard(t, v !== "overview")));
+    body.appendChild(cards);
+    body.appendChild(historyView(tools));
+  }
+
+  function makeCard(tool, open) {
+    const el = document.createElement("article");
+    el.className = "card";
+    const keys = Object.keys(tool.windows);
+    el.innerHTML = `
+      <div class="card-main">
+        <div class="top">
+          <div><h4>${tool.name}</h4><p>${tool.plan}</p></div>
+          ${keys.length > 1
+            ? `<div class="seg" role="group" aria-label="Limit window">${keys.map(k => `<button type="button" id="${tool.id}-win-${k}" data-win="${k}" aria-pressed="false">${k}</button>`).join("")}</div>`
+            : `<span class="win-tag">Weekly limit only</span>`}
+        </div>
+        <div class="headline">
+          <div><p class="used" data-used></p><p class="used-sub" data-used-sub></p></div>
+          <div class="status" data-status><p class="status-main" data-status-main></p><p class="status-sub" data-status-sub></p></div>
+        </div>
+        <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-bar><span></span></div>
+        <div class="chart-wrap">
+          <div class="chart" data-chart></div>
+          <p class="legend" aria-hidden="true"><span>${swatch("usage")}Used</span><span>${swatch("proj")}At current pace</span><span>${swatch("even")}Even pace</span></p>
+        </div>
+        <dl class="stats">
+          <div class="stat"><dt data-pace-label></dt><dd data-pace></dd></div>
+          <div class="stat"><dt>Sustainable</dt><dd data-sus></dd></div>
+          <div class="stat"><dt>Resets</dt><dd data-resets></dd></div>
+        </dl>
+      </div>
+      <details class="details" id="${tool.id}-details" ${open ? "open" : ""}>
+        <summary>Forecast details ${ICON_CHEV}</summary>
+        <dl data-details></dl>
+      </details>`;
+    const card = { tool, el };
+    if (!tool.series) {
+      tool.series = {};
+      Object.entries(tool.windows).forEach(([k, w], j) => tool.series[k] = series(w, 17 + tool.id.length * 31 + j * 7));
+    }
+    el.querySelectorAll("[data-win]").forEach(b => b.addEventListener("click", () => { tool.active = b.dataset.win; updateCard(card); }));
+    new ResizeObserver(() => drawChart(card)).observe(el.querySelector("[data-chart]"));
+    updateCard(card);
+    return el;
+  }
+
+  function updateCard(card) {
+    const { tool, el } = card, w = tool.windows[tool.active], s = stats(w), q = sel => el.querySelector(sel), short = w.len < 24;
+    el.querySelectorAll("[data-win]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.win === tool.active)));
+    q("[data-used]").textContent = fmtPct(s.used);
+    q("[data-used-sub]").textContent = `of ${windowName(w)} limit used`;
+    const bar = q("[data-bar]");
+    bar.setAttribute("aria-valuenow", s.used.toFixed(0));
+    bar.setAttribute("aria-label", `${fmtPct(s.used)} of ${windowName(w)} limit used`);
+    requestAnimationFrame(() => bar.firstElementChild.style.width = `${s.used}%`);
+
+    const status = q("[data-status]");
+    if (s.runsOut) {
+      status.className = "status warn";
+      q("[data-status-main]").textContent = `Runs out in ${fmtIn(s.runout)}`;
+      q("[data-status-sub]").textContent = `Around ${fmtClock(NOW + s.runout * HOUR)}, before the ${fmtWhen(s.reset, short)} reset`;
+    } else {
+      status.className = "status ok";
+      q("[data-status-main]").textContent = "On track";
+      q("[data-status-sub]").textContent = `About ${fmtPct(s.projected)} at reset`;
+    }
+    q("[data-pace-label]").textContent = `Pace, last ${w.lookback}h`;
+    q("[data-pace]").innerHTML = `${s.pace.toFixed(1)}<small>%/h</small>`;
+    q("[data-sus]").innerHTML = `${s.sustainable.toFixed(1)}<small>%/h</small>`;
+    q("[data-resets]").textContent = `in ${fmtIn(s.left)}`;
+
+    const lead = s.used - s.even;
+    const rows = [
+      ["Window started", fmtWhen(s.start, short)],
+      ["Resets", fmtDayClock(s.reset)],
+      ["Remaining", fmtPct(100 - s.used, 1)],
+      ["Hits 100%", s.runsOut ? fmtDayClock(NOW + s.runout * HOUR) : "Not before reset"],
+      ["Even pace now", `${fmtPct(s.even, 1)} (${Math.abs(lead).toFixed(1)} pts ${lead >= 0 ? "ahead" : "behind"})`],
+      [short ? "Budget per hour" : "Budget per day", short ? `${s.sustainable.toFixed(1)}%` : `${(s.sustainable * 24).toFixed(1)}%`]
+    ];
+    q("[data-details]").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    drawChart(card);
+  }
+
+  function drawChart(card) {
+    const { tool, el } = card;
+    const box = el.querySelector("[data-chart]");
+    if (!box.isConnected) return;
+    const w = tool.windows[tool.active], s = stats(w), pts = tool.series[tool.active];
+    const W = Math.max(220, box.clientWidth), H = box.clientHeight;
+    const m = { l: 34, r: 6, t: 6, b: 22 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const x = t => m.l + (t / w.len) * iw;
+    const y = p => m.t + (1 - p / 100) * ih;
+    let svg = "";
+
+    [0, 50, 100].forEach(p => {
+      svg += `<line class="gridline" x1="${m.l}" x2="${m.l + iw}" y1="${y(p)}" y2="${y(p)}"/>`;
+      svg += `<text class="axis" x="${m.l - 8}" y="${y(p) + 4}" text-anchor="end">${p}%</text>`;
+    });
+    if (w.len > 24) {
+      const n = new Date(s.start); n.setHours(12, 0, 0, 0);
+      if (n.getTime() < s.start) n.setDate(n.getDate() + 1);
+      const every = iw / 7 < 36 ? 2 : 1;
+      for (let k = 0; n.getTime() < s.reset; n.setDate(n.getDate() + 1), k++) {
+        if (k % every) continue;
+        svg += `<text class="axis" x="${x((n.getTime() - s.start) / HOUR)}" y="${H - 4}" text-anchor="middle">${n.toLocaleDateString([], { weekday: "short" })}</text>`;
+      }
+    } else {
+      const d = new Date(s.start); d.setMinutes(60, 0, 0);
+      const every = iw / w.len < 48 ? 2 : 1;
+      for (let k = 0; d.getTime() < s.reset; d.setHours(d.getHours() + 1), k++) {
+        if (k % every) continue;
+        svg += `<text class="axis" x="${x((d.getTime() - s.start) / HOUR)}" y="${H - 4}" text-anchor="middle">${d.toLocaleTimeString([], { hour: "numeric" })}</text>`;
+      }
+    }
+    svg += `<path class="even" d="M${x(0)},${y(0)} L${x(w.len)},${y(100)}"/>`;
+    const nx = x(w.elapsed), ny = y(s.used);
+    const end = s.runsOut ? [x(w.elapsed + s.runout), y(100)] : [x(w.len), y(s.projected)];
+    svg += `<path class="proj" d="M${nx},${ny} L${end[0]},${end[1]}"/>`;
+    if (s.runsOut) svg += `<circle class="runout" cx="${end[0]}" cy="${end[1]}" r="4"/>`;
+    const line = pts.map(([t, v], i) => `${i ? "L" : "M"}${x(t).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    svg += `<path class="usage" d="${line}"/><circle class="dot" cx="${nx}" cy="${ny}" r="4.5"/>`;
+    svg += `<g data-hover style="display:none"><line class="guide" y1="${m.t}" y2="${m.t + ih}"/><circle class="hover-dot" r="4"/></g>`;
+    svg += `<rect data-hit x="${m.l}" y="0" width="${iw}" height="${H}" fill="transparent"/>`;
+    const label = `${fmtPct(s.used)} used, ${s.runsOut ? "runs out in " + fmtIn(s.runout) : "about " + fmtPct(s.projected) + " at reset"}`;
+    box.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" role="img" aria-label="${label}">${svg}</svg><div class="tip" hidden></div>`;
+
+    const hit = box.querySelector("[data-hit]"), g = box.querySelector("[data-hover]"), tip = box.querySelector(".tip");
+    const guide = g.querySelector("line"), hdot = g.querySelector("circle");
+    const move = e => {
+      const r = box.getBoundingClientRect();
+      const px = Math.min(m.l + iw, Math.max(m.l, e.clientX - r.left));
+      const t = ((px - m.l) / iw) * w.len, past = t <= w.elapsed;
+      const v = past ? interp(w.keys, t) : Math.min(100, s.used + s.pace * (t - w.elapsed));
+      g.style.display = "";
+      guide.setAttribute("x1", px); guide.setAttribute("x2", px);
+      hdot.setAttribute("cx", px); hdot.setAttribute("cy", y(v));
+      tip.innerHTML = `${fmtPct(v, 1)} ${past ? "used" : "projected"} <span>· ${fmtWhen(s.start + t * HOUR, w.len < 24)}</span>`;
+      tip.hidden = false;
+      const tw = tip.offsetWidth;
+      tip.style.left = `${Math.min(W - tw, Math.max(0, px - tw / 2))}px`;
+      tip.style.top = `${Math.max(0, y(v) - tip.offsetHeight - 10)}px`;
+    };
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerdown", move);
+    hit.addEventListener("pointerleave", () => { g.style.display = "none"; tip.hidden = true; });
+  }
+
+  function historyView(tools) {
+    const el = document.createElement("section");
+    el.className = "history";
+    const weeks = Array.from({ length: 8 }, (_, i) => new Date(NOW - (7 - i) * 7 * 24 * HOUR).toLocaleDateString([], { month: "short", day: "numeric" }));
+    el.innerHTML = `
+      <div class="block-head">
+        <div><h4>Past weeks</h4><p>Weekly limit used by the time it reset</p></div>
+        <p class="hist-key"><span><i></i>Used</span><span><i class="hit"></i>Hit the limit</span></p>
+      </div>
+      ${tools.map(t => {
+        const vals = [...t.history, stats(t.windows["7d"]).used];
+        return `<div class="hist-row"><span class="hist-name">${t.name}</span><div class="hist-bars">${vals.map((v, i) => {
+          const now = i === vals.length - 1;
+          return `<span class="${now ? "now" : v >= 100 ? "hit" : ""}" style="height:${v}%" title="Week of ${weeks[i]}: ${fmtPct(v)}${now ? " so far" : ""}"></span>`;
+        }).join("")}</div></div>`;
+      }).join("")}
+      <div class="hist-axis" aria-hidden="true"><span></span><div>${weeks.map((w, i) => `<span>${i === 7 ? "Now" : i % 2 ? "" : w}</span>`).join("")}</div></div>`;
+    return el;
+  }
+
+  function settingsView() {
+    const el = document.createElement("div");
+    el.className = "settings";
+    const sw = (id, key, label) => `<button type="button" class="switch" role="switch" id="${id}" data-key="${key}" aria-checked="${settings[key]}" aria-label="${label}"></button>`;
+    el.innerHTML = `
+      <section class="set-group"><h4>Menu bar</h4><div class="set-box">
+        <div class="set-row">
+          <div><p>Show next to the icon</p><p class="hint">Updates the menu bar at the top of this page</p></div>
+          <div class="seg" role="group" aria-label="Menu bar display">
+            ${[["tightest", "Tightest limit"], ["both", "Both tools"], ["icon", "Icon only"]].map(([k, l]) => `<button type="button" id="mb-mode-${k}" data-mode="${k}" aria-pressed="${settings.menubar === k}">${l}</button>`).join("")}
+          </div>
+        </div>
+      </div></section>
+
+      <section class="set-group"><h4>Notifications</h4><div class="set-box">
+        <div class="set-row"><div><p>When a limit will run out before it resets</p><p class="hint">Once per window, based on your pace</p></div>${sw("n-runout", "notifyRunout", "Notify when a limit will run out")}</div>
+        <div class="set-row"><div><p>When usage passes
+          <select id="n-threshold" aria-label="Usage threshold">${["50", "75", "80", "90"].map(v => `<option value="${v}" ${settings.threshold === v ? "selected" : ""}>${v}%</option>`).join("")}</select></p></div>${sw("n-threshold-on", "notifyThreshold", "Notify when usage passes threshold")}</div>
+        <div class="set-row"><div><p>When a limit resets</p></div>${sw("n-reset", "notifyReset", "Notify when a limit resets")}</div>
+      </div></section>
+
+      <section class="set-group"><h4>Data sources</h4><div class="set-box">
+        <div class="set-row"><div><p>Codex</p><p class="hint">Reads limits from session logs · <code>~/.codex/sessions</code></p></div><span class="conn">Connected</span></div>
+        <div class="set-row"><div><p>Claude Code</p><p class="hint">Reads limits reported to Claude Code's status line</p></div><span class="conn">Connected</span></div>
+      </div></section>
+
+      <section class="set-group"><h4>General</h4><div class="set-box">
+        <div class="set-row"><div><p>Open at login</p></div>${sw("g-login", "login", "Open at login")}</div>
+        <div class="set-row"><div><p>Check for new usage</p></div>
+          <select id="g-refresh" aria-label="Refresh interval">${[["30", "Every 30 seconds"], ["60", "Every minute"], ["300", "Every 5 minutes"]].map(([v, l]) => `<option value="${v}" ${settings.refresh === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      </div></section>`;
+    el.querySelectorAll(".switch").forEach(b => b.addEventListener("click", () => {
+      settings[b.dataset.key] = !settings[b.dataset.key]; b.setAttribute("aria-checked", String(settings[b.dataset.key]));
+    }));
+    el.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => {
+      settings.menubar = b.dataset.mode;
+      el.querySelectorAll("[data-mode]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+      menubarItem(document.getElementById("mb-main"), settings.menubar);
+      placePopover();
+    }));
+    el.querySelector("#n-threshold").addEventListener("change", e => settings.threshold = e.target.value);
+    el.querySelector("#g-refresh").addEventListener("change", e => settings.refresh = e.target.value);
+    return el;
+  }
+
+  // ---------- boot ----------
+  const mbMain = document.getElementById("mb-main");
+  const pop = document.getElementById("pop");
+  mbMain.addEventListener("click", () => {
+    pop.hidden = !pop.hidden;
+    mbMain.setAttribute("aria-expanded", String(!pop.hidden));
+    menubarItem(mbMain, settings.menubar);
+  });
+  document.getElementById("refresh").addEventListener("click", tick);
+
+  renderPopover();
+  menubarItem(mbMain, settings.menubar);
+  renderStates();
+  renderNotif();
+  setView("overview");
+  new ResizeObserver(placePopover).observe(document.getElementById("scene"));
+
+  function tick() {
+    document.querySelectorAll("[data-updated]").forEach(n => n.textContent = updatedText());
+    document.getElementById("clock").textContent = new Date().toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  tick(); setInterval(tick, 1000);
+})();
+</script>
