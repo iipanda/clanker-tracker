@@ -2,7 +2,8 @@
 # Installs Clanker Tracker to ~/Applications and sets up usage tracking for Codex and Claude Code.
 # Run it from a clone of the repo: scripts/install.sh
 #   Builds from source when Swift 6.2+ is installed, otherwise downloads the latest release
-#   (FROM_RELEASE=1 forces the download). Undo the Claude Code part with --remove-collector.
+#   (FROM_RELEASE=1 forces the download), and adds the app to login items (OPEN_AT_LOGIN=0 skips that).
+#   Undo the Claude Code part with --remove-collector, the login item with --open-at-login off.
 set -eu
 cd "$(dirname "$0")/.."
 APP="$HOME/Applications/ClankerTracker.app"
@@ -49,6 +50,10 @@ fi
 echo "Claude Code:"
 "$BIN" --install-collector
 
+if [ "${OPEN_AT_LOGIN:-1}" = 1 ]; then
+  "$BIN" --open-at-login || true
+fi
+
 echo
-echo "Done. Click the ring in the menu bar to see your limits. Allow notifications when macOS asks;"
-echo "Open at login is in Settings → General. To undo the Claude Code setup: $BIN --remove-collector"
+echo "Done. Click the ring in the menu bar to see your limits, and allow notifications when macOS asks."
+echo "To undo: $BIN --remove-collector (Claude Code setup), $BIN --open-at-login off (login item)."

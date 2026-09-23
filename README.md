@@ -23,8 +23,9 @@ Install Clanker Tracker: clone https://github.com/iipanda/clanker-tracker into ~
 ```
 
 [`scripts/install.sh`](scripts/install.sh) checks the requirements, builds the app (or downloads
-the latest release if Swift isn't installed), installs it to `~/Applications`, and sets up tracking
-for Codex and Claude Code. Nothing it installs is quarantined, so there's no Gatekeeper prompt.
+the latest release if Swift isn't installed), installs it to `~/Applications`, sets up tracking
+for Codex and Claude Code, and adds it to login items (`OPEN_AT_LOGIN=0` skips that). Nothing it
+installs is quarantined, so there's no Gatekeeper prompt.
 
 ## What it shows
 
@@ -108,7 +109,8 @@ Then:
 
 1. Click the ring in the menu bar → **Settings…**
 2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first if you want to see the edit).
-3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running.
+3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running
+   (`scripts/install.sh` does steps 2 and 3's login item for you).
 
 > [!TIP]
 > Rebuilding changes the ad-hoc signature, and macOS may then forget the notification and login-item
@@ -132,6 +134,7 @@ The binary takes a few flags that help while developing:
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |
 | `--install-collector` / `--remove-collector` | Sets up or removes the Claude Code collector (prints the settings.json change) |
+| `--open-at-login [off]` | Adds the app to login items, or removes it |
 | `--show-window` | Opens the main window at launch |
 
 ```sh

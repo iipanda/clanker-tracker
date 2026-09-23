@@ -61,6 +61,19 @@ if arguments.contains("--install-collector") || arguments.contains("--remove-col
     }
 }
 
+if let i = arguments.firstIndex(of: "--open-at-login") {
+    // Same as Settings → General → Open at login. `--open-at-login off` turns it off.
+    let on = !(i + 1 < arguments.count && arguments[i + 1] == "off")
+    do {
+        try LoginItem.set(on)
+        print("Open at login: \(LoginItem.isEnabled ? "on" : "off")")
+        exit(0)
+    } catch {
+        print("Couldn't change Open at login: \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
 if let i = arguments.firstIndex(of: "--snapshot"), i + 1 < arguments.count {
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
