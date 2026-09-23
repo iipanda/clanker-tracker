@@ -21,13 +21,17 @@ Paste this into Claude Code or Codex on the Mac you want to track:
 Install Clanker Tracker (https://github.com/iipanda/clanker-tracker) on this Mac and set up
 usage tracking for both Codex and Claude Code.
 
-1. Check the requirements: macOS 26 or later (`sw_vers -productVersion`), Swift 6.2 from
-   Xcode 26 (`swift --version`), and jq (`command -v jq`; it ships with macOS 15 and later).
-   If anything is missing, stop and tell me what to install.
-2. Clone the repo into ~/Developer/clanker-tracker (or `git pull` if it's already there), then run
-   `scripts/build-app.sh` from the repo. It builds the app, installs it to
-   ~/Applications/ClankerTracker.app and opens it. The first launch reads existing Codex logs,
-   which can take up to a minute.
+1. Check the requirements: macOS 26 or later (`sw_vers -productVersion`) and jq
+   (`command -v jq`; it ships with macOS 15 and later). If either is missing, stop and tell me.
+2. Install the app into ~/Applications/ClankerTracker.app:
+   - If Swift 6.2 or later is available (`swift --version`, comes with Xcode 26): clone the repo
+     into ~/Developer/clanker-tracker (or `git pull` if it's already there) and run
+     `scripts/build-app.sh` from it. It builds, installs and opens the app.
+   - Otherwise download the latest release with
+     `gh release download --repo iipanda/clanker-tracker --pattern 'ClankerTracker-*.zip' --dir /tmp/clanker`,
+     unzip it with `ditto -x -k /tmp/clanker/ClankerTracker-*.zip ~/Applications/`, and
+     `open ~/Applications/ClankerTracker.app`.
+   The first launch reads existing Codex logs, which can take up to a minute.
 3. Codex needs no setup: the app reads ~/.codex/sessions. Check that folder exists; if it
    doesn't, tell me Codex hasn't been used on this Mac yet.
 4. Set up Claude Code tracking by running
@@ -104,7 +108,15 @@ reading. Until then the app shows the last known value and how old it is.
 
 ## Install
 
-Requires macOS 26 and Xcode 26 (Swift 6.2).
+Requires macOS 26 or later.
+
+**Download**: grab `ClankerTracker-<version>.zip` from
+[Releases](https://github.com/iipanda/clanker-tracker/releases), unzip it, and move
+**ClankerTracker.app** to Applications. Builds aren't notarized by Apple yet, so the first time
+you open it macOS says it can't verify the app: click **Done**, then **System Settings → Privacy &
+Security → Open Anyway**. (Or run `xattr -dr com.apple.quarantine /Applications/ClankerTracker.app`.)
+
+**Build from source** (needs Xcode 26 / Swift 6.2; no Gatekeeper prompt, since nothing is downloaded):
 
 ```sh
 git clone https://github.com/iipanda/clanker-tracker.git
@@ -113,6 +125,7 @@ scripts/build-app.sh
 ```
 
 This builds a release, signs it, installs it to `~/Applications/ClankerTracker.app`, and opens it.
+
 Then:
 
 1. Click the ring in the menu bar → **Settings…**
@@ -150,6 +163,17 @@ The binary takes a few flags that help while developing:
 Set `CLANKER_TRACKER_DIR` to use a different data folder, e.g. for a clean backfill without touching
 the real one.
 
+### Releases
+
+```sh
+scripts/release.sh 0.2.0              # test, universal build, zip, tag v0.2.0, publish a GitHub release
+DRY_RUN=1 scripts/release.sh 0.2.0    # build and zip only
+```
+
+Releases are ad-hoc signed for now. With an Apple Developer ID, set `DEVELOPER_ID` (the certificate
+name) and `NOTARY_PROFILE` (from `xcrun notarytool store-credentials`) and the same script signs with
+the hardened runtime, notarizes, and staples the app, so it opens without any warning.
+
 ### Layout
 
 ```
@@ -158,6 +182,7 @@ Sources/ClankerCore/      model, forecast math, log parsers, file tailing + FSEv
 Sources/ClankerTracker/   the app: status item, popover, main window, settings (AppKit + SwiftUI)
 design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install
+scripts/release.sh        universal build, zip, GitHub release
 ```
 
 ### Data files
