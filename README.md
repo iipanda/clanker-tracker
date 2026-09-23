@@ -3,8 +3,10 @@
 **A macOS menu bar app that tells you whether your Claude Code and Codex limits will last until they reset.**
 
 It reads the limit data both tools already keep on your Mac, shows how much of each limit you've
-used, projects your current pace forward, and warns you before you run out. It runs entirely on
-your Mac, working from files that are already there.
+used, projects your current pace forward, and warns you before you run out. It also works out what
+your usage would cost at API list prices, like [ccusage](https://github.com/ryoppippi/ccusage), and
+keeps that history so you can compare days, weeks and months. Everything is computed on your Mac
+from files that are already there; the one download is a public price list, once a day.
 
 <p align="center">
   <picture>
@@ -34,12 +36,20 @@ and starts it. Add `--no-open-at-login` to leave your login items as they are.
 - **App window**: per tool, a burn chart of the current window (recorded usage, projection at your
   current pace, and an even-pace line), pace vs. sustainable pace, forecast details, and how full
   your recent weekly windows got before they reset.
+- **Spend**: the API-equivalent cost of your usage per day, week or month, per tool and per model,
+  with the current period compared to the same point in the previous one. The dropdown shows today
+  and this week, and each limit window shows what it has cost so far.
 - **Notifications**: once per window when your pace would run out before the reset, when usage
   passes a threshold (80% by default), and, if you turn it on, when a limit resets.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png">
   <img src="docs/overview-light.png" alt="Overview with a Claude Code card at 72% that runs out in 42 minutes, a Codex card at 54% on track, and bars for recent weekly windows">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/spend-dark.png">
+  <img src="docs/spend-light.png" alt="Spend page with weekly API-equivalent cost bars stacked by tool, this week's total compared to last week, and a per-model breakdown of tokens and cost">
 </picture>
 
 <sub>Screenshots use the sample data from <code>--demo</code>.</sub>
@@ -57,15 +67,33 @@ For the current window of each limit:
 The projection assumes your recent pace continues around the clock, so right after a busy stretch
 it leans cautious, and it eases as quieter hours fill the lookback.
 
+## How the API-equivalent cost works
+
+Every model response's tokens are read from the tools' own logs, split the way API prices are
+(input, cache writes, cache reads, output), and kept as hourly totals per model. Cost is worked out
+when shown, from the current prices:
+
+- **Prices** come from [LiteLLM's public price table](https://github.com/BerriAI/litellm), the same
+  source ccusage uses, downloaded at most once a day. A copy is built into the app for offline use.
+- **Long-context rates** apply per request: GPT models above 272k prompt tokens, and older Claude
+  models above 200k, cost more per token. Claude Code fast mode counts at twice the standard rate.
+- **Each response counts once**: Claude Code repeats a response's usage on several lines (the
+  largest output count wins), and Codex copies earlier responses into resumed and forked sessions
+  (the original is kept, and a forked sub-agent's copy of its parent's history is left out).
+- `codex-auto-review` is priced as `gpt-5.6-luna`, the same alias ccusage uses.
+
+Checked against ccusage on the same logs: Claude Code matches exactly; Codex agrees on most days and
+is within about 1% overall, the difference coming from how forked sub-agent sessions are counted.
+
 ## Where the data comes from
 
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |
-| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. | While Claude Code is running. |
+| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. Token usage comes from its transcripts in `~/.claude/projects`. | While Claude Code is running. |
 
-- **Codex**: the app tracks the main `codex` limit. The first launch reads the last 9 weeks of
-  logs (about 20 s for ~20 GB); after that it reads just the new lines as files grow.
+- **Codex**: the app tracks the main `codex` limit. The first launch reads all existing logs once
+  (about 30 s for ~20 GB); after that it reads just the new lines as files grow.
 - **Claude Code**: set up the collector from **Settings → Data sources** (or with `--setup` or
   `--install-collector`). It adapts to your status line:
 
@@ -146,7 +174,7 @@ real data.
 ### Releases
 
 ```sh
-scripts/release.sh 0.2.0              # test, universal build, zip, tag v0.2.0, publish a GitHub release
+scripts/release.sh 0.2.0              # refresh built-in prices, test, universal build, zip, tag, publish
 DRY_RUN=1 scripts/release.sh 0.2.0    # build and zip
 ```
 
@@ -164,13 +192,18 @@ design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install
 scripts/install.sh        build from source, install, run --setup
 scripts/release.sh        universal build, zip, GitHub release
+scripts/update-prices.py  refreshes the built-in price table from LiteLLM
 ```
 
 ### Data files
 
 Everything lives in `~/Library/Application Support/ClankerTracker/`:
 
-- `history.json`: every limit window seen, compressed to the readings where usage changed. It's a
-  cache: delete it together with `state.json` to re-read the logs from scratch.
+- `history.json`: every limit window seen, compressed to the readings where usage changed. It and
+  the spend files are rebuilt from the logs: delete them together with `state.json` to re-read
+  everything from scratch.
+- `spend.json`: hourly token totals per tool and model, kept for good.
+- `spend-seen.bin`: which responses have been counted, so each is counted once.
+- `prices.json`: the latest downloaded price table.
 - `state.json`: how far into each log file the app has read.
 - `claude/latest.json`, `claude/history.jsonl`: written by the collector.

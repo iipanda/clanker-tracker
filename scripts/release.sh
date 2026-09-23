@@ -21,6 +21,11 @@ if [ "${DRY_RUN:-0}" != 1 ]; then
   git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && { echo "Tag $TAG already exists."; exit 1; }
 fi
 
+scripts/update-prices.py
+if [ "${DRY_RUN:-0}" != 1 ] && [ -n "$(git status --porcelain Sources/ClankerCore/Spend/BundledPrices.swift)" ]; then
+  git commit -q -m "Update built-in prices" Sources/ClankerCore/Spend/BundledPrices.swift
+  echo "Committed refreshed built-in prices."
+fi
 swift test
 UNIVERSAL=1 INSTALL=0 VERSION="$VERSION" scripts/build-app.sh
 

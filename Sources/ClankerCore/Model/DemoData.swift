@@ -23,6 +23,34 @@ public enum DemoData {
         .codex: [30, 45, 38, 70, 52, 61, 48],
     ]
 
+    /// Twelve weeks of plausible hourly usage for both tools, busier on weekdays and in the afternoon.
+    public static func spend(now: Date) -> SpendLedger {
+        var ledger = SpendLedger()
+        let cal = Calendar.current
+        let start = cal.date(byAdding: .day, value: -84, to: cal.startOfDay(for: now)) ?? now
+        var seed: UInt64 = 42
+        func next() -> Double {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Double(seed >> 33) / Double(1 << 31)
+        }
+        var t = start
+        while t < now {
+            let hour = cal.component(.hour, from: t), weekday = cal.component(.weekday, from: t)
+            let busy = (9...19).contains(hour) ? 1.0 : 0.15
+            let weekdayFactor = (2...6).contains(weekday) ? 1.0 : 0.35
+            let growth = 0.6 + 0.8 * t.timeIntervalSince(start) / now.timeIntervalSince(start)
+            for (tool, model, scale) in [(Tool.claude, "claude-opus-5", 1.0), (.claude, "claude-fable-5-1", 0.35), (.codex, "gpt-5.6-sol", 1.4), (.codex, "gpt-6-astra", 0.3)] {
+                guard next() < busy * weekdayFactor else { continue }
+                let k = scale * growth * (0.5 + next())
+                let tokens = TokenCounts(input: Int(40_000 * k), cacheWrite5m: tool == .claude ? Int(180_000 * k) : 0,
+                                         cacheRead: Int(2_600_000 * k), output: Int(30_000 * k))
+                ledger.add(UsageEvent(tool: tool, model: model, t: t, tokens: tokens, dedupeKey: 0))
+            }
+            t = t.addingTimeInterval(3600)
+        }
+        return ledger
+    }
+
     public static func history(now: Date) -> UsageHistory {
         var h = UsageHistory()
         for s in specs {

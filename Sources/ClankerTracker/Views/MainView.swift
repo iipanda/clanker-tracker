@@ -23,6 +23,7 @@ struct MainView: View {
                         .tag(Pane.tool(tool))
                     }
                 }
+                Label("Spend", systemImage: "dollarsign.circle").tag(Pane.spend)
                 Label("Settings", systemImage: "gearshape").tag(Pane.settings)
             }
             .navigationSplitViewColumnWidth(min: 190, ideal: 210, max: 260)
@@ -48,6 +49,10 @@ struct MainView: View {
             ScrollView { ToolPane(model: model, tool: tool) }
                 .navigationTitle(tool.displayName)
             .navigationSubtitle(model.lastSeen(tool).map { "Last reading \(Fmt.ago(model.now.timeIntervalSince($0)))" } ?? "No readings yet")
+        case .spend:
+            ScrollView { SpendView(model: model) }
+                .navigationTitle("Spend")
+                .navigationSubtitle("API-equivalent cost")
         case .settings:
             SettingsView(model: model)
                 .navigationTitle("Settings")
@@ -154,7 +159,8 @@ struct PastWeeksView: View {
                                 .frame(maxWidth: 26)
                                 .frame(height: max(2, 64 * bar.peak / 100))
                                 .frame(maxWidth: .infinity)
-                                .help(bar.isCurrent ? "Current window: \(Fmt.pct(bar.peak)) so far" : "Ended \(Fmt.monthDay(bar.end)): peaked at \(Fmt.pct(bar.peak))")
+                                .help((bar.isCurrent ? "Current window: \(Fmt.pct(bar.peak)) so far" : "Ended \(Fmt.monthDay(bar.end)): peaked at \(Fmt.pct(bar.peak))")
+                                      + " · \(Fmt.usd(model.windowSpend(tool, from: bar.start, to: bar.end).usd)) API equivalent")
                         }
                     }
                     .frame(height: 64, alignment: .bottom)

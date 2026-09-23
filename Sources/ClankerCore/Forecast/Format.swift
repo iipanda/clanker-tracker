@@ -17,6 +17,11 @@ public enum Fmt {
         d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
+    /// "Wed, Sep 23, 09:52"
+    public static func dateClock(_ d: Date) -> String {
+        d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
+    }
+
     /// Clock time for short windows, weekday and time for long ones.
     public static func when(_ d: Date, short: Bool) -> String { short ? clock(d) : dayClock(d) }
 
@@ -41,6 +46,22 @@ public enum Fmt {
         if s < 3600 { return "\(s / 60) min ago" }
         if s < 48 * 3600 { return "\(s / 3600) h ago" }
         return "\(s / 86400) days ago"
+    }
+
+    /// "$4.72", "$1,240"
+    public static func usd(_ v: Double) -> String {
+        v.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")).precision(.fractionLength(v < 100 ? 2 : 0)))
+    }
+
+    /// "812", "12.3k", "345M", "1.2B"
+    public static func tokens(_ n: Int) -> String {
+        let v = Double(n)
+        switch n {
+        case ..<1_000: return "\(n)"
+        case ..<1_000_000: return String(format: v < 10_000 ? "%.1fk" : "%.0fk", v / 1_000)
+        case ..<1_000_000_000: return String(format: v < 10_000_000 ? "%.1fM" : "%.0fM", v / 1_000_000)
+        default: return String(format: "%.1fB", v / 1_000_000_000)
+        }
     }
 
     /// "1:12" until a moment, for the menu bar when a limit is hit.

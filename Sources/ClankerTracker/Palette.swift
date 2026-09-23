@@ -8,11 +8,14 @@ enum Palette {
     static let warnNS = dynamic(light: 0xB0620A, dark: 0xF2B13A)
     static let okNS = dynamic(light: 0x0D7A5B, dark: 0x55D3A4)
     static let critNS = dynamic(light: 0xC42F2A, dark: 0xFF6B61)
+    /// Second series color for Codex next to Claude Code's accent.
+    static let codexNS = dynamic(light: 0x1F8AC0, dark: 0x5BB6E8)
 
     static let accent = Color(nsColor: accentNS)
     static let warn = Color(nsColor: warnNS)
     static let ok = Color(nsColor: okNS)
     static let crit = Color(nsColor: critNS)
+    static let codex = Color(nsColor: codexNS)
     static let track = Color.primary.opacity(0.09)
     static let line = Color.primary.opacity(0.09)
 

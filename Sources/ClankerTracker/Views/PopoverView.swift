@@ -12,6 +12,8 @@ struct PopoverView: View {
                 if i > 0 { Divider().padding(.horizontal, 10) }
                 ToolSection(tool: tool, model: model)
             }
+            Divider().padding(.horizontal, 10)
+            SpendLine(model: model) { open(.spend) }
             Divider().padding(.horizontal, 4).padding(.vertical, 6)
             Text(model.updatedText)
                 .font(.caption)
@@ -59,6 +61,38 @@ private struct ToolSection: View {
         .padding(.horizontal, 10)
         .padding(.top, 10)
         .padding(.bottom, 8)
+    }
+}
+
+/// "API equivalent · today $87 · week $1,240"; opens the Spend page.
+private struct SpendLine: View {
+    let model: AppModel
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) { content }
+            .buttonStyle(.plain)
+            .background(hovering ? Palette.track : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .onHover { hovering = $0 }
+            .help("Open the Spend page")
+    }
+
+    @ViewBuilder private var content: some View {
+        let today = model.spendSummary(SpendPeriod.day.interval(containing: model.now))
+        let week = model.spendSummary(SpendPeriod.week.interval(containing: model.now))
+        HStack(alignment: .firstTextBaseline) {
+            Text("API equivalent").font(.system(size: 13, weight: .semibold))
+            Spacer()
+            Text("today \(Fmt.usd(today.usd)) · week \(Fmt.usd(week.usd))")
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 

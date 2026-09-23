@@ -134,12 +134,13 @@ struct ToolCard: View {
         let short = f.window.isShort
         let lead = f.used - f.even
         let rows: [(String, String)] = [
-            ("Window started", Fmt.when(f.start, short: short)),
-            ("Resets", Fmt.dayClock(f.end)),
+            ("Window started", short ? Fmt.clock(f.start) : Fmt.dateClock(f.start)),
+            ("Resets", short ? Fmt.dayClock(f.end) : Fmt.dateClock(f.end)),
             ("Remaining", Fmt.pct(max(0, 100 - f.used), digits: 1)),
-            ("Hits 100%", f.runoutDate.map(Fmt.dayClock) ?? (f.isHit ? "Reached" : "Not before reset")),
+            ("Hits 100%", f.runoutDate.map(short ? Fmt.dayClock : Fmt.dateClock) ?? (f.isHit ? "Reached" : "Not before reset")),
             ("Even pace now", "\(Fmt.pct(f.even, digits: 1)) (\(String(format: "%.1f", abs(lead))) pts \(lead >= 0 ? "ahead" : "behind"))"),
             (short ? "Budget per hour" : "Budget per day", short ? Fmt.pct(f.sustainable, digits: 1) : Fmt.pct(f.sustainable * 24, digits: 1)),
+            ("API equivalent this window", Fmt.usd(model.windowSpend(tool, from: f.start, to: f.end).usd)),
             ("Last reading", Fmt.ago(f.now.timeIntervalSince(f.lastSeen))),
         ]
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {

@@ -5,7 +5,58 @@ import Observation
 enum Pane: Hashable {
     case overview
     case tool(Tool)
+    case spend
     case settings
+}
+
+/// A calendar period for comparing spend: today, this week, this month, and the ones before.
+enum SpendPeriod: String, CaseIterable, Identifiable {
+    case day, week, month
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+
+    var component: Calendar.Component {
+        switch self {
+        case .day: .day
+        case .week: .weekOfYear
+        case .month: .month
+        }
+    }
+
+    /// How many periods the chart shows.
+    var count: Int { self == .day ? 30 : 12 }
+
+    func interval(containing date: Date) -> DateInterval {
+        Calendar.current.dateInterval(of: component, for: date) ?? DateInterval(start: date, duration: 86400)
+    }
+
+    /// The `count` most recent periods, oldest first, ending with the current one.
+    func recent(now: Date) -> [DateInterval] {
+        var out: [DateInterval] = [interval(containing: now)]
+        while out.count < count, let prev = Calendar.current.date(byAdding: component, value: -1, to: out[0].start) {
+            out.insert(interval(containing: prev), at: 0)
+        }
+        return out
+    }
+
+    /// "Today", "This week", "Sep 21–27", "September"
+    func name(_ i: DateInterval, now: Date) -> String {
+        if i.contains(now) { return self == .day ? "Today" : "This \(rawValue)" }
+        switch self {
+        case .day: return i.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        case .week: return "Week of \(Fmt.monthDay(i.start))"
+        case .month: return i.start.formatted(.dateTime.month(.wide).year())
+        }
+    }
+
+    /// Short label under a chart bar.
+    func axisLabel(_ i: DateInterval) -> String {
+        switch self {
+        case .day: i.start.formatted(.dateTime.day())
+        case .week: Fmt.monthDay(i.start)
+        case .month: i.start.formatted(.dateTime.month(.abbreviated))
+        }
+    }
 }
 
 @Observable
@@ -54,6 +105,8 @@ final class AppSettings {
 final class AppModel {
     private(set) var history = UsageHistory()
     private(set) var backfill: BackfillProgress?
+    private(set) var spend = SpendLedger()
+    private(set) var prices = PriceTable.bundled
     private(set) var hasLoaded = false
     private(set) var collector: ClaudeCollector.State = .canCreate
     private(set) var hookError: String?
@@ -75,6 +128,7 @@ final class AppModel {
         refreshHookState()
         if isDemo {
             history = DemoData.history(now: now)
+            spend = DemoData.spend(now: now)
             hasLoaded = true
             return
         }
@@ -83,6 +137,8 @@ final class AppModel {
                 guard let self else { return }
                 self.history = update.history
                 self.backfill = update.backfill
+                self.spend = update.spend
+                self.prices = update.prices
                 self.hasLoaded = true
                 self.now = Date()
                 self.onUpdate?(update.backfill != nil)
@@ -123,6 +179,21 @@ final class AppModel {
     var tightest: Forecast? { Tightest.pick(allForecasts) }
     func tightest(_ tool: Tool) -> Forecast? { Tightest.pick(forecasts(tool)) }
     func pastWeeks(_ tool: Tool) -> [WeekBar] { PastWeeks.bars(history, tool: tool, now: now) }
+
+    // MARK: Spend
+
+    func spendRows(tool: Tool? = nil, _ interval: DateInterval) -> [ModelSpend] {
+        spend.totals(tool: tool, from: interval.start, to: interval.end)
+    }
+
+    func spendSummary(tool: Tool? = nil, _ interval: DateInterval) -> SpendSummary {
+        SpendSummary(spendRows(tool: tool, interval), prices: prices)
+    }
+
+    /// API-equivalent cost of a limit window so far (hour resolution).
+    func windowSpend(_ tool: Tool, from start: Date, to end: Date) -> SpendSummary {
+        spendSummary(tool: tool, DateInterval(start: start, end: max(start, min(end, now.addingTimeInterval(3600)))))
+    }
     func plan(_ tool: Tool) -> String? { history.plan(for: tool).map { "\($0.capitalized) plan" } }
     func lastSeen(_ tool: Tool) -> Date? { history.lastSeen(tool) }
 

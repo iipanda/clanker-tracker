@@ -12,7 +12,23 @@ if arguments.contains("--dump") {
         await engine.start(watch: false)
         await engine.flush()
         let history = await engine.currentHistory()
+        let spend = await engine.currentSpend()
+        let prices = await engine.currentPrices()
         let now = Date()
+        let cal = Calendar.current
+        func period(_ c: Calendar.Component) -> [String: Any] {
+            let start = cal.dateInterval(of: c, for: now)?.start ?? now
+            return Dictionary(uniqueKeysWithValues: Tool.allCases.map { tool in
+                let s = SpendSummary(spend.totals(tool: tool, from: start, to: now.addingTimeInterval(3600)), prices: prices)
+                return (tool.rawValue, ["usd": (s.usd * 100).rounded() / 100, "tokens": s.tokens.total, "unpricedTokens": s.unpricedTokens])
+            })
+        }
+        let byModel = spend.totals(from: .distantPast, to: now.addingTimeInterval(3600))
+            .sorted { ($0.cost(prices) ?? -1) > ($1.cost(prices) ?? -1) }
+            .map { m -> [String: Any] in
+                ["tool": m.tool.rawValue, "model": m.model + (m.fast ? " (fast)" : ""), "tokens": m.tokens.total,
+                 "usd": m.cost(prices).map { ($0 * 100).rounded() / 100 } ?? NSNull()]
+            }
         let limits = history.currentForecasts(now: now).map { f -> [String: Any] in
             [
                 "tool": f.tool.rawValue, "window": f.window.label, "used": f.used,
@@ -28,6 +44,12 @@ if arguments.contains("--dump") {
             "points": history.windows.reduce(0) { $0 + $1.points.count },
             "plans": history.plans,
             "limits": limits,
+            "spend": [
+                "today": period(.day), "thisWeek": period(.weekOfYear), "thisMonth": period(.month),
+                "since": spend.firstDate.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+                "byModel": byModel,
+                "pricesFetchedAt": prices.fetchedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "bundled",
+            ] as [String: Any],
             "pastWeeks": Dictionary(uniqueKeysWithValues: Tool.allCases.map { tool in
                 (tool.rawValue, PastWeeks.bars(history, tool: tool, now: now).map { ["ended": $0.isCurrent ? "current" : Fmt.monthDay($0.end), "peak": $0.peak] })
             }),

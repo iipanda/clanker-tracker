@@ -18,6 +18,11 @@ public struct AppPaths: Sendable {
     public var claudeHistory: URL { claudeDir.appending(path: "history.jsonl") }
     public var claudeLatest: URL { claudeDir.appending(path: "latest.json") }
     public var historyFile: URL { support.appending(path: "history.json") }
+    public var spendFile: URL { support.appending(path: "spend.json") }
+    public var seenFile: URL { support.appending(path: "spend-seen.bin") }
+    public var pricesFile: URL { support.appending(path: "prices.json") }
+    /// Claude Code transcripts, read for token usage.
+    public var claudeProjects: URL { claudeHome.appending(path: "projects", directoryHint: .isDirectory) }
     public var stateFile: URL { support.appending(path: "state.json") }
 
     public init(support: URL, codexHome: URL, claudeHome: URL, claudeJSON: URL) {

@@ -27,6 +27,40 @@ public enum LineScanner {
     }
 }
 
+extension LineScanner {
+    /// Like `scan(_:needle:line:)` for several needles, in file order; `line` also gets the index of
+    /// the needle that matched (the first one, if a line contains several).
+    @discardableResult
+    public static func scan(_ buf: UnsafeRawBufferPointer, needles: [[UInt8]], line: (UnsafeRawBufferPointer, Int) -> Void) -> Int {
+        guard let base = buf.baseAddress, !buf.isEmpty, !needles.isEmpty else { return 0 }
+        var limit = buf.count
+        while limit > 0 && buf[limit - 1] != 0x0A { limit -= 1 }
+        guard limit > 0 else { return 0 }
+
+        func find(_ n: [UInt8], from pos: Int) -> Int {
+            n.withUnsafeBytes { nb in
+                guard pos < limit, let hit = memmem(base + pos, limit - pos, nb.baseAddress, nb.count) else { return Int.max }
+                return base.distance(to: UnsafeRawPointer(hit))
+            }
+        }
+        // Next match of each needle; only refreshed once the scan has moved past it.
+        var next = needles.map { find($0, from: 0) }
+        var pos = 0
+        while pos < limit {
+            for i in needles.indices where next[i] < pos { next[i] = find(needles[i], from: pos) }
+            guard let m = next.min(), m != Int.max else { break }
+            var s = m
+            while s > pos && buf[s - 1] != 0x0A { s -= 1 }
+            var e = m
+            while e < limit && buf[e] != 0x0A { e += 1 }
+            let which = needles.indices.first { next[$0] >= s && next[$0] < e } ?? 0
+            line(UnsafeRawBufferPointer(rebasing: buf[s..<e]), which)
+            pos = e + 1
+        }
+        return limit
+    }
+}
+
 public struct FileCursor: Codable, Sendable, Hashable {
     public var inode: UInt64
     public var offset: Int64
