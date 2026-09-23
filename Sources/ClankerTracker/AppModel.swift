@@ -55,7 +55,7 @@ final class AppModel {
     private(set) var history = UsageHistory()
     private(set) var backfill: BackfillProgress?
     private(set) var hasLoaded = false
-    private(set) var hookState: StatusLineHook.State = .noScript
+    private(set) var collector: ClaudeCollector.State = .canCreate
     private(set) var hookError: String?
     var now = Date()
     var pane: Pane? = .overview
@@ -136,36 +136,32 @@ final class AppModel {
 
     // MARK: Claude collector
 
-    var claudeScript: URL? {
-        switch hookState {
-        case .installed(let u), .notInstalled(let u), .anchorMissing(let u): u
-        case .noScript: nil
-        }
+    /// The `statusLine` entry before and after installing, when installing edits settings.json.
+    var plannedCollectorChange: (before: String?, after: String)? {
+        ClaudeCollector.plannedChange(settings: engine.paths.claudeSettings, managedScript: engine.paths.claudeManagedScript)
     }
 
     func refreshHookState() {
-        hookState = StatusLineHook.state(settings: engine.paths.claudeSettings)
+        collector = ClaudeCollector.state(settings: engine.paths.claudeSettings, managedScript: engine.paths.claudeManagedScript)
     }
 
     func installHook() {
-        guard case .notInstalled(let url) = hookState else { return }
         do {
             try FileManager.default.createDirectory(at: engine.paths.claudeDir, withIntermediateDirectories: true)
-            try StatusLineHook.install(script: url)
+            try ClaudeCollector.install(settings: engine.paths.claudeSettings, managedScript: engine.paths.claudeManagedScript)
             hookError = nil
         } catch {
-            hookError = "Couldn't update \(url.lastPathComponent): \(error.localizedDescription)"
+            hookError = "Couldn't set up the collector: \(error.localizedDescription)"
         }
         refreshHookState()
     }
 
     func uninstallHook() {
-        guard case .installed(let url) = hookState else { return }
         do {
-            try StatusLineHook.uninstall(script: url)
+            try ClaudeCollector.uninstall(settings: engine.paths.claudeSettings, managedScript: engine.paths.claudeManagedScript)
             hookError = nil
         } catch {
-            hookError = "Couldn't update \(url.lastPathComponent): \(error.localizedDescription)"
+            hookError = "Couldn't remove the collector: \(error.localizedDescription)"
         }
         refreshHookState()
     }

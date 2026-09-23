@@ -7,8 +7,12 @@ public struct AppPaths: Sendable {
     public var codexArchived: URL
     /// `~/.claude.json`, holds a cached copy of the last usage response.
     public var claudeJSON: URL
-    /// `~/.claude/settings.json`, names the status line script.
-    public var claudeSettings: URL
+    /// `~/.claude`
+    public var claudeHome: URL
+    /// `~/.claude/settings.json`, names the status line command.
+    public var claudeSettings: URL { claudeHome.appending(path: "settings.json") }
+    /// The status line script the app installs when it can't add its block to the user's own script.
+    public var claudeManagedScript: URL { claudeHome.appending(path: ClaudeCollector.managedScriptName) }
 
     public var claudeDir: URL { support.appending(path: "claude", directoryHint: .isDirectory) }
     public var claudeHistory: URL { claudeDir.appending(path: "history.jsonl") }
@@ -21,7 +25,7 @@ public struct AppPaths: Sendable {
         codexSessions = codexHome.appending(path: "sessions", directoryHint: .isDirectory)
         codexArchived = codexHome.appending(path: "archived_sessions", directoryHint: .isDirectory)
         self.claudeJSON = claudeJSON
-        claudeSettings = claudeHome.appending(path: "settings.json")
+        self.claudeHome = claudeHome
     }
 
     public static var standard: AppPaths {

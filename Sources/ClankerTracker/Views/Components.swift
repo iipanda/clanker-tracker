@@ -54,8 +54,8 @@ struct EmptyToolMessage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).foregroundStyle(.secondary)
-            if tool == .claude, case .notInstalled = model.hookState, !compact {
-                Button("Install collector") { model.installHook() }
+            if tool == .claude, !model.collector.isInstalled, model.collector != .settingsUnreadable, !compact {
+                Button("Set up collector") { model.pane = .settings }
                     .controlSize(.small)
             }
         }
@@ -67,12 +67,10 @@ struct EmptyToolMessage: View {
         case .codex:
             model.hasLoaded ? "No Codex usage in the last 8 days." : "Reading Codex logs…"
         case .claude:
-            switch model.hookState {
-            case .installed: "Waiting for your next Claude Code message."
-            case .notInstalled: compact ? "Install the collector in Settings to track Claude Code." : "Claude Code reports limits only to its status line. Install the collector to save them."
-            case .anchorMissing: "Add the collector to your status line script. See Settings."
-            case .noScript: "No Claude Code status line configured. See Settings."
-            }
+            model.collector.isInstalled
+                ? "Waiting for your next Claude Code message."
+                : compact ? "Set up the collector in Settings to track Claude Code."
+                : "Claude Code reports its limits only to its status line. Set up the collector in Settings to save them."
         }
     }
 }

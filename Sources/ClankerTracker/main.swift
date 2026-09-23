@@ -40,21 +40,25 @@ if arguments.contains("--dump") {
 }
 
 if arguments.contains("--install-collector") || arguments.contains("--remove-collector") {
-    // Same as the Install / Remove buttons in Settings → Data sources.
+    // Same as Install / Remove in Settings → Data sources.
     let paths = AppPaths.standard
-    let install = arguments.contains("--install-collector")
-    switch StatusLineHook.state(settings: paths.claudeSettings) {
-    case .notInstalled(let script) where install:
-        try FileManager.default.createDirectory(at: paths.claudeDir, withIntermediateDirectories: true)
-        try StatusLineHook.install(script: script)
-        print("Installed collector in \(script.path) (backup: \(script.lastPathComponent).clanker-backup)")
-    case .installed(let script) where !install:
-        try StatusLineHook.uninstall(script: script)
-        print("Removed collector from \(script.path)")
-    case let state:
-        print("Nothing to do: \(state)")
+    let (settings, managed) = (paths.claudeSettings, paths.claudeManagedScript)
+    do {
+        if arguments.contains("--install-collector") {
+            if let change = ClaudeCollector.plannedChange(settings: settings, managedScript: managed) {
+                print("statusLine in \(settings.path)\n  now:   \(change.before ?? "not set")\n  after: \(change.after)")
+            }
+            try FileManager.default.createDirectory(at: paths.claudeDir, withIntermediateDirectories: true)
+            try ClaudeCollector.install(settings: settings, managedScript: managed)
+        } else {
+            try ClaudeCollector.uninstall(settings: settings, managedScript: managed)
+        }
+        print("Collector: \(ClaudeCollector.state(settings: settings, managedScript: managed))")
+        exit(0)
+    } catch {
+        print("Failed: \(error.localizedDescription)")
+        exit(1)
     }
-    exit(0)
 }
 
 if let i = arguments.firstIndex(of: "--snapshot"), i + 1 < arguments.count {

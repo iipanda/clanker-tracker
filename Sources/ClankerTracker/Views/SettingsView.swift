@@ -7,7 +7,7 @@ struct SettingsView: View {
     let notifier: Notifier = .shared
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var loginError: String?
-    @State private var copied = false
+    @State private var showChange = false
 
     var body: some View {
         @Bindable var settings = model.settings
@@ -81,54 +81,74 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var claudeSource: some View {
-        switch model.hookState {
-        case .installed(let script):
+        let paths = model.engine.paths
+        switch model.collector {
+        case .inScript(let script):
+            installed("Saving limits from your status line script, \(tilde(script.path)).")
+        case .managed(let previous?):
+            installed("Your status line (`\(previous)`) runs through \(tilde(paths.claudeManagedScript.path)), which saves the limits first. Remove puts your previous setting back.")
+        case .managed(nil):
+            installed("Clanker Tracker provides your status line: folder · model · 5h and 7d usage. Remove turns it off again.")
+        case .canPatchScript(let script):
+            setup("Claude Code reports its limits only to its status line. This adds a small block to \(tilde(script.path)) that saves them. Your status line looks the same, and a backup is kept next to the script.")
+        case .canWrap(let command):
+            setup("Claude Code reports its limits only to its status line. Your status line command (`\(command)`) keeps working: it will run through a small script that saves the limits first, then prints exactly what your command prints.")
+        case .canCreate:
+            setup("Claude Code reports its limits only to its status line, and you don't have one yet. This sets up a simple one, showing folder · model · 5h and 7d usage, that also saves the limits.")
+        case .settingsUnreadable:
             LabeledContent {
-                HStack(spacing: 10) {
-                    connection(model.lastSeen(.claude), waiting: "Waiting for Claude Code")
-                    Button("Remove") { model.uninstallHook() }.controlSize(.small)
-                }
+                Button("Check again") { model.refreshHookState() }.controlSize(.small)
             } label: {
                 Text("Claude Code")
-                Text("Collector installed in \(tilde(script.path)). Updates while Claude Code runs.")
+                Text("~/.claude/settings.json isn't valid JSON, so Clanker Tracker won't change it. Fix the file, then check again.")
             }
-        case .notInstalled(let script):
-            LabeledContent {
-                Button("Install collector") { model.installHook() }
-            } label: {
-                Text("Claude Code")
-                Text("Claude Code reports limits only to its status line. This adds a small block to \(tilde(script.path)) that saves them; your status line looks the same. A backup is kept next to it.")
-            }
-        case .anchorMissing(let script):
-            manualInstall("Your status line script (\(tilde(script.path))) doesn't read its input with `input=$(cat)`. Add that line near the top, followed by this block:")
-        case .noScript:
-            manualInstall("Claude Code has no status line script. Create one in ~/.claude/settings.json (\"statusLine\"), read the input with `input=$(cat)`, then add this block:")
         }
         if let error = model.hookError {
             Text(error).font(.caption).foregroundStyle(Palette.warn)
         }
     }
 
-    private func manualInstall(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Claude Code")
-            Text(text).font(.caption).foregroundStyle(.secondary)
-            Text(StatusLineHook.block)
-                .font(.system(size: 11, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.track, in: RoundedRectangle(cornerRadius: 6))
-            HStack {
-                Button(copied ? "Copied" : "Copy block") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(StatusLineHook.block, forType: .string)
-                    copied = true
-                }
-                Button("Check again") { model.refreshHookState() }
+    private func installed(_ detail: String) -> some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                connection(model.lastSeen(.claude), waiting: "Waiting for Claude Code")
+                Button("Remove") { model.uninstallHook() }.controlSize(.small)
             }
-            .controlSize(.small)
+        } label: {
+            Text("Claude Code")
+            Text(detail + " Updates while Claude Code runs.")
         }
+    }
+
+    @ViewBuilder private func setup(_ detail: String) -> some View {
+        LabeledContent {
+            Button("Install collector") { model.installHook() }
+        } label: {
+            Text("Claude Code")
+            Text(detail)
+        }
+        if let change = model.plannedCollectorChange {
+            DisclosureGroup(isExpanded: $showChange) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\"statusLine\" in ~/.claude/settings.json. Nothing else in the file changes, and a backup is saved as settings.json.clanker-backup. Applies to new Claude Code sessions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    codeBlock("Now:    \(change.before ?? "not set")\nAfter:  \(change.after)")
+                }
+                .padding(.top, 4)
+            } label: {
+                Text("What changes").font(.caption)
+            }
+        }
+    }
+
+    private func codeBlock(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, design: .monospaced))
+            .textSelection(.enabled)
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Palette.track, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func connection(_ lastSeen: Date?, waiting: String = "No readings yet") -> some View {

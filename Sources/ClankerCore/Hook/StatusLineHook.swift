@@ -27,7 +27,7 @@ public enum StatusLineHook {
         case notInstalled(URL)
         /// The script doesn't read stdin with `input=$(cat)`; the user has to add the block by hand.
         case anchorMissing(URL)
-        /// No status line script configured in Claude Code's settings.
+        /// The file can't be read.
         case noScript
     }
 
@@ -40,6 +40,11 @@ public enum StatusLineHook {
               let statusLine = root["statusLine"] as? [String: Any],
               let command = statusLine["command"] as? String
         else { return nil }
+        return scriptPath(in: command)
+    }
+
+    /// The shell script a status line command runs, if it's a plain `sh path/to/script.sh`-style command.
+    public static func scriptPath(in command: String) -> URL? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         for token in command.split(separator: " ").reversed() {
             var path = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
@@ -51,11 +56,6 @@ public enum StatusLineHook {
             }
         }
         return nil
-    }
-
-    public static func state(settings: URL) -> State {
-        guard let script = scriptURL(settings: settings) else { return .noScript }
-        return state(script: script)
     }
 
     public static func state(script: URL) -> State {
