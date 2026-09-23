@@ -2,9 +2,9 @@
 
 **A macOS menu bar app that tells you whether your Claude Code and Codex limits will last until they reset.**
 
-It reads the limit data both tools already leave on your Mac, shows how much of each limit you've
-used, projects your current pace forward, and warns you before you run out. Everything stays local:
-no accounts, no servers, no network requests.
+It reads the limit data both tools already keep on your Mac, shows how much of each limit you've
+used, projects your current pace forward, and warns you before you run out. It runs entirely on
+your Mac, working from files that are already there.
 
 <p align="center">
   <picture>
@@ -22,20 +22,20 @@ Install Clanker Tracker: download the latest release zip from https://github.com
 unzip it into ~/Applications (replacing any older copy), run ClankerTracker.app/Contents/MacOS/ClankerTracker --setup, and tell me what it printed.
 ```
 
-`--setup` checks Codex tracking, sets up the Claude Code collector, adds the app to login items,
-and starts it (`--no-open-at-login` skips the login item).
+`--setup` confirms Codex tracking, sets up the Claude Code collector, adds the app to login items,
+and starts it. Add `--no-open-at-login` to leave your login items as they are.
 
 ## What it shows
 
 - **Menu bar icon**: a ring that fills with whichever limit is closest to running out, plus its
-  percentage. It stays monochrome like other menu bar icons, turns amber when your pace would hit
-  100% before the reset, and switches to a red countdown to the reset once you hit the limit.
+  percentage. It matches the monochrome style of other menu bar icons, turns amber when your pace
+  would hit 100% before the reset, and switches to a red countdown to the reset once you reach the limit.
 - **Dropdown**: every limit at a glance, with used %, "Runs out ~15:02" or "On track", and when it resets.
 - **App window**: per tool, a burn chart of the current window (recorded usage, projection at your
   current pace, and an even-pace line), pace vs. sustainable pace, forecast details, and how full
   your recent weekly windows got before they reset.
 - **Notifications**: once per window when your pace would run out before the reset, when usage
-  passes a threshold (80% by default), and optionally when a limit resets.
+  passes a threshold (80% by default), and, if you turn it on, when a limit resets.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png">
@@ -50,39 +50,38 @@ For the current window of each limit:
 
 - **Pace**: how much the usage grew over the last hour (5-hour limits) or last 6 hours (weekly
   limits), in % per hour.
-- **Runs out**: `remaining % ÷ pace`, added to now. If that lands before the reset, the limit
+- **Runs out**: `remaining % ÷ pace`, added to now. When that lands before the reset, the limit
   shows amber.
-- **Sustainable**: `remaining % ÷ hours until reset`, the pace that would land exactly on 100% at the reset.
+- **Sustainable**: `remaining % ÷ hours until reset`, the pace that lands exactly on 100% at the reset.
 
-The projection assumes you keep your recent pace without breaks, so right after a busy stretch
-it's on the pessimistic side and it relaxes as idle hours drop out of the lookback.
+The projection assumes your recent pace continues around the clock, so right after a busy stretch
+it leans cautious, and it eases as quieter hours fill the lookback.
 
 ## Where the data comes from
 
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |
-| **Claude Code** | Claude Code reports `rate_limits` only to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. | While Claude Code is running. |
+| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. | While Claude Code is running. |
 
-- **Codex**: only the main `codex` limit is tracked. The Spark (`codex_bengalfox`) and `premium`
-  limits are ignored. The first launch reads the last 9 weeks of logs (about 20 s for ~20 GB);
-  after that only new lines are read as files grow.
-- **Claude Code**: set up the collector from **Settings → Data sources** (or with
-  `--install-collector`). What it does depends on your status line:
+- **Codex**: the app tracks the main `codex` limit. The first launch reads the last 9 weeks of
+  logs (about 20 s for ~20 GB); after that it reads just the new lines as files grow.
+- **Claude Code**: set up the collector from **Settings → Data sources** (or with `--setup` or
+  `--install-collector`). It adapts to your status line:
 
   | Your status line | What the collector does |
   | --- | --- |
-  | A shell script that reads `input=$(cat)` | Adds a marked block right after that line. The block saves `rate_limits` in the background and prints nothing, so your status line looks the same. A copy of the script is kept as `<script>.clanker-backup`. |
-  | Any other command (`npx ccstatusline`, a Python script, a one-liner, …) | Points `statusLine` at `~/.claude/clanker-statusline.sh`, which saves the limits, then runs your command with the same input and prints its output unchanged. |
-  | None | Points `statusLine` at the same script, which saves the limits and shows a simple status line: `clanker · Opus · 5h 12% · 7d 40%`. |
+  | A shell script that reads `input=$(cat)` | Adds a marked block right after that line. The block saves `rate_limits` silently in the background, so your status line looks exactly as before. A copy of the script is kept as `<script>.clanker-backup`. |
+  | Any other command (`npx ccstatusline`, a Python script, a one-liner, …) | Points `statusLine` at `~/.claude/clanker-statusline.sh`, which saves the limits, then runs your command with the same input and prints exactly what it prints. |
+  | Claude Code's default | Points `statusLine` at the same script, which saves the limits and gives you a simple status line: `clanker · Opus · 5h 12% · 7d 40%`. |
 
-  Only the `statusLine` entry in `~/.claude/settings.json` is edited; the rest of the file stays
-  byte-for-byte the same, and a backup is saved as `settings.json.clanker-backup`. Settings shows
-  the exact change before you install. **Remove** (or `--remove-collector`) puts the previous
-  `statusLine` back exactly (the managed script keeps a copy of it). The collector needs `jq`,
-  which ships with macOS 15 and later. Changes apply to new Claude Code sessions.
+  The collector edits just the `statusLine` entry in `~/.claude/settings.json`, leaves every other
+  byte of the file as it was, and saves a backup as `settings.json.clanker-backup`. Settings shows
+  the exact change before you install. **Remove** (or `--remove-collector`) restores your previous
+  `statusLine` exactly, from a copy kept in the managed script. The collector uses `jq`, which
+  ships with macOS 15 and later. Changes take effect in new Claude Code sessions.
 
-Usage from other machines, or from claude.ai and Codex on the web, shows up at the next local
+Usage from other machines, or from claude.ai and Codex on the web, appears at the next local
 reading. Until then the app shows the last known value and how old it is.
 
 ## Install
@@ -91,37 +90,37 @@ Requires macOS 26 or later.
 
 **Download**: grab `ClankerTracker-<version>.zip` from
 [Releases](https://github.com/iipanda/clanker-tracker/releases), unzip it, and move
-**ClankerTracker.app** to Applications. Builds aren't notarized by Apple yet, so the first time
-you open it macOS says it can't verify the app: click **Done**, then **System Settings → Privacy &
-Security → Open Anyway**. (Or run `xattr -dr com.apple.quarantine /Applications/ClankerTracker.app`.)
+**ClankerTracker.app** to Applications. Release builds are ad-hoc signed, so on first launch macOS
+asks you to confirm: click **Done**, then **System Settings → Privacy & Security → Open Anyway**.
+(Or run `xattr -dr com.apple.quarantine /Applications/ClankerTracker.app`.)
 
 **Build from source** (needs Xcode 26 / Swift 6.2):
 
 ```sh
 git clone https://github.com/iipanda/clanker-tracker.git
 cd clanker-tracker
-scripts/install.sh      # build, install, run --setup; or scripts/build-app.sh to only build and install
+scripts/install.sh      # build, install, run --setup; or scripts/build-app.sh to build and install
 ```
 
 Then:
 
 1. Click the ring in the menu bar → **Settings…**
-2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first if you want to see the edit).
-3. Allow notifications when macOS asks, and turn on **Open at login** if you want it always running.
+2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first to see the edit).
+3. Allow notifications when macOS asks, and turn on **Open at login** to keep it running.
 
-Or run `ClankerTracker.app/Contents/MacOS/ClankerTracker --setup` once, which does steps 2 and 3's login item for you.
+Or run `ClankerTracker.app/Contents/MacOS/ClankerTracker --setup` once, which handles step 2 and the login item.
 
 > [!TIP]
-> Rebuilding changes the ad-hoc signature, and macOS may then forget the notification and login-item
-> permissions. To keep them, create a code-signing certificate named "Clanker Dev" in Keychain
-> Access (Certificate Assistant → Create a Certificate → type *Code Signing*) and build with
-> `CODESIGN_ID="Clanker Dev" scripts/build-app.sh`.
+> Each rebuild gets a new ad-hoc signature, and macOS ties the notification and login-item
+> permissions to it. To keep them across rebuilds, create a code-signing certificate named
+> "Clanker Dev" in Keychain Access (Certificate Assistant → Create a Certificate → type
+> *Code Signing*) and build with `CODESIGN_ID="Clanker Dev" scripts/build-app.sh`.
 
 ## Development
 
 ```sh
 swift test                       # core logic: forecasts, parsers, file tailing, hook, notifications
-INSTALL=0 scripts/build-app.sh   # build build/ClankerTracker.app without installing
+INSTALL=0 scripts/build-app.sh   # build into build/ClankerTracker.app
 open Package.swift               # work in Xcode
 ```
 
@@ -129,7 +128,7 @@ The binary takes a few flags that help while developing:
 
 | Flag | What it does |
 | --- | --- |
-| `--setup [--no-open-at-login]` | Checks Codex, sets up the Claude Code collector, adds the login item, starts the app |
+| `--setup [--no-open-at-login]` | Confirms Codex tracking, sets up the Claude Code collector, adds the login item, starts the app |
 | `--dump` | Reads everything once and prints the current limits as JSON |
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |
@@ -141,25 +140,25 @@ The binary takes a few flags that help while developing:
 ~/Applications/ClankerTracker.app/Contents/MacOS/ClankerTracker --dump
 ```
 
-Set `CLANKER_TRACKER_DIR` to use a different data folder, e.g. for a clean backfill without touching
-the real one.
+Set `CLANKER_TRACKER_DIR` to use a separate data folder, e.g. for a fresh backfill alongside your
+real data.
 
 ### Releases
 
 ```sh
 scripts/release.sh 0.2.0              # test, universal build, zip, tag v0.2.0, publish a GitHub release
-DRY_RUN=1 scripts/release.sh 0.2.0    # build and zip only
+DRY_RUN=1 scripts/release.sh 0.2.0    # build and zip
 ```
 
-Releases are ad-hoc signed for now. With an Apple Developer ID, set `DEVELOPER_ID` (the certificate
-name) and `NOTARY_PROFILE` (from `xcrun notarytool store-credentials`) and the same script signs with
-the hardened runtime, notarizes, and staples the app, so it opens without any warning.
+Releases are ad-hoc signed today. With an Apple Developer ID, set `DEVELOPER_ID` (the certificate
+name) and `NOTARY_PROFILE` (from `xcrun notarytool store-credentials`), and the same script signs
+with the hardened runtime, notarizes, and staples the app, so it opens straight away.
 
 ### Layout
 
 ```
 Sources/ClankerCore/      model, forecast math, log parsers, file tailing + FSEvents, status line hook,
-                          notification rules. No UI. Covered by Tests/ClankerCoreTests.
+                          notification rules. Pure logic, covered by Tests/ClankerCoreTests.
 Sources/ClankerTracker/   the app: status item, popover, main window, settings (AppKit + SwiftUI)
 design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install
