@@ -18,33 +18,13 @@ no accounts, no servers, no network requests.
 Paste this into Claude Code or Codex on the Mac you want to track:
 
 ```text
-Install Clanker Tracker (https://github.com/iipanda/clanker-tracker) on this Mac and set up
-usage tracking for both Codex and Claude Code.
-
-1. Check the requirements: macOS 26 or later (`sw_vers -productVersion`) and jq
-   (`command -v jq`; it ships with macOS 15 and later). If either is missing, stop and tell me.
-2. Install the app into ~/Applications/ClankerTracker.app:
-   - If Swift 6.2 or later is available (`swift --version`, comes with Xcode 26): clone the repo
-     into ~/Developer/clanker-tracker (or `git pull` if it's already there) and run
-     `scripts/build-app.sh` from it. It builds, installs and opens the app.
-   - Otherwise download the latest release with
-     `gh release download --repo iipanda/clanker-tracker --pattern 'ClankerTracker-*.zip' --dir /tmp/clanker`,
-     unzip it with `ditto -x -k /tmp/clanker/ClankerTracker-*.zip ~/Applications/`, and
-     `open ~/Applications/ClankerTracker.app`.
-   The first launch reads existing Codex logs, which can take up to a minute.
-3. Codex needs no setup: the app reads ~/.codex/sessions. Check that folder exists; if it
-   doesn't, tell me Codex hasn't been used on this Mac yet.
-4. Set up Claude Code tracking by running
-   `~/Applications/ClankerTracker.app/Contents/MacOS/ClankerTracker --install-collector`.
-   It changes only the "statusLine" entry in ~/.claude/settings.json (or adds a small block to
-   my status line script) and keeps a backup. Show me the change it printed and the collector
-   state. Don't edit settings.json or the status line script yourself.
-5. Verify by running `~/Applications/ClankerTracker.app/Contents/MacOS/ClankerTracker --dump`
-   and summarize the limits it lists. Claude Code limits appear after my next message in a new
-   Claude Code session.
-6. Finish by telling me to allow notifications when macOS asks, that "Open at login" is in the
-   app's Settings → General, and that `--remove-collector` undoes step 4.
+Install Clanker Tracker: clone https://github.com/iipanda/clanker-tracker into ~/Developer/clanker-tracker
+(or git pull it), run scripts/install.sh, and tell me what it printed and how to fix anything it stopped on.
 ```
+
+[`scripts/install.sh`](scripts/install.sh) checks the requirements, builds the app (or downloads
+the latest release if Swift isn't installed), installs it to `~/Applications`, and sets up tracking
+for Codex and Claude Code. Nothing it installs is quarantined, so there's no Gatekeeper prompt.
 
 ## What it shows
 
@@ -121,10 +101,8 @@ Security → Open Anyway**. (Or run `xattr -dr com.apple.quarantine /Application
 ```sh
 git clone https://github.com/iipanda/clanker-tracker.git
 cd clanker-tracker
-scripts/build-app.sh
+scripts/install.sh      # build, install, set up tracking; or scripts/build-app.sh to only build and install
 ```
-
-This builds a release, signs it, installs it to `~/Applications/ClankerTracker.app`, and opens it.
 
 Then:
 
@@ -182,6 +160,7 @@ Sources/ClankerCore/      model, forecast math, log parsers, file tailing + FSEv
 Sources/ClankerTracker/   the app: status item, popover, main window, settings (AppKit + SwiftUI)
 design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install
+scripts/install.sh        install + set up tracking (what the agent prompt runs)
 scripts/release.sh        universal build, zip, GitHub release
 ```
 
