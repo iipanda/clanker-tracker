@@ -236,13 +236,19 @@ scripts/update-prices.py  refreshes the built-in price table from LiteLLM
 
 ### Data files
 
-Everything lives in `~/Library/Application Support/ClankerTracker/`:
+Everything lives in `~/Library/Application Support/ClankerTracker/`. It's the app's own record and
+outlives the tools' logs: Claude Code deletes transcripts after 30 days by default, and your spend and
+limit history stay here regardless.
 
-- `history.json`: every limit window seen, compressed to the readings where usage changed. It and
-  the spend files are rebuilt from the logs: delete them together with `state.json` to re-read
-  everything from scratch.
-- `spend.json`: hourly token totals per tool and model, kept for good.
+- `spend.json`: hourly token totals per tool and model, kept for good. When the app re-reads the logs
+  from scratch (e.g. after an update that changes how tokens are counted), it rebuilds just the
+  period the remaining logs cover and keeps everything older.
+- `history.json`: every limit window seen, compressed to the readings where usage changed, kept for
+  good (about 1 MB a year). Forecasts learn from the most recent weeks.
 - `spend-seen.bin`: which responses have been counted, so each is counted once.
 - `prices.json`: the latest downloaded price table.
 - `state.json`: how far into each log file the app has read.
 - `claude/latest.json`, `claude/history.jsonl`: written by the collector.
+
+A file the app finds unreadable is moved aside as `<name>.unreadable-<date>.json` rather than
+overwritten, so it can be recovered.

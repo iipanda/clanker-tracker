@@ -54,6 +54,17 @@ enum AtomicJSON {
         return try? decoder.decode(T.self, from: data)
     }
 
+    /// Like `read`, but a file that exists and can't be read is moved aside (e.g.
+    /// `spend.unreadable-2026-09-24T10-00-00.json`) instead of being overwritten by the next save.
+    static func readKeepingUnreadable<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        if let value = read(type, from: url) { return value }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(stamp)").appendingPathExtension(url.pathExtension)
+        try? FileManager.default.moveItem(at: url, to: aside)
+        return nil
+    }
+
     static func write(_ value: some Encodable, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .secondsSince1970

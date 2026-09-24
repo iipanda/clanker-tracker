@@ -261,3 +261,86 @@ import Testing
         #expect(f.projected > 10)
     }
 }
+
+@Suite struct RetentionTests {
+    struct Setup {
+        let root: URL
+        let paths: AppPaths
+        var codex: URL { root.appending(path: "codex/sessions/2026") }
+        var claude: URL { root.appending(path: "claude/projects/demo") }
+
+        init() throws {
+            root = try tempDir()
+            paths = AppPaths(support: root.appending(path: "data"), codexHome: root.appending(path: "codex"),
+                             claudeHome: root.appending(path: "claude"), claudeJSON: root.appending(path: "none.json"))
+            try FileManager.default.createDirectory(at: root.appending(path: "codex/sessions/2026"), withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: root.appending(path: "claude/projects/demo"), withIntermediateDirectories: true)
+        }
+
+        func codexLog(_ name: String, _ ts: String, total: Int, input: Int) throws {
+            let lines = [
+                #"{"timestamp":"\#(ts)","type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#,
+                #"{"timestamp":"\#(ts)","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":\#(total)},"last_token_usage":{"input_tokens":\#(input),"cached_input_tokens":0,"output_tokens":0,"total_tokens":\#(input)}},"rate_limits":null}}"#,
+            ]
+            try (lines.joined(separator: "\n") + "\n").write(to: codex.appending(path: name), atomically: true, encoding: .utf8)
+        }
+
+        func claudeLog(_ name: String, _ ts: String, id: String, output: Int) throws {
+            let line = #"{"type":"assistant","timestamp":"\#(ts)","requestId":"r\#(id)","message":{"id":"m\#(id)","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":\#(output)}}}"#
+            try (line + "\n").write(to: claude.appending(path: name), atomically: true, encoding: .utf8)
+        }
+
+        func run() async -> SpendLedger {
+            let engine = Engine(paths: paths, downloadsPrices: false)
+            await engine.start(watch: false)
+            await engine.flush()
+            return await engine.currentSpend()
+        }
+
+        func outputs(_ ledger: SpendLedger) -> [Int] {
+            ledger.entries.sorted { $0.hour < $1.hour }.map { $0.tokens.output + $0.tokens.input }
+        }
+    }
+
+    @Test func spendSurvivesDeletedLogsAndAReRead() async throws {
+        let s = try Setup()
+        try s.codexLog("rollout-2026-01-10T10-00-00-a.jsonl", "2026-01-10T10:00:00.000Z", total: 100, input: 100)
+        try s.codexLog("rollout-2026-09-20T10-00-00-b.jsonl", "2026-09-20T10:00:00.000Z", total: 200, input: 200)
+        try s.claudeLog("old.jsonl", "2026-01-11T10:00:00.000Z", id: "1", output: 10)
+        try s.claudeLog("new.jsonl", "2026-09-21T10:00:00.000Z", id: "2", output: 20)
+        let first = await s.run()
+        #expect(first.entries.count == 4)
+
+        // Re-reading unchanged logs from scratch gives the same ledger (nothing counted twice).
+        try FileManager.default.removeItem(at: s.paths.stateFile)
+        #expect(await s.run() == first)
+
+        // The tools clean up their old logs, then a full re-read happens: the old hours are kept.
+        try FileManager.default.removeItem(at: s.codex.appending(path: "rollout-2026-01-10T10-00-00-a.jsonl"))
+        try FileManager.default.removeItem(at: s.claude.appending(path: "old.jsonl"))
+        try FileManager.default.removeItem(at: s.paths.stateFile)
+        let after = await s.run()
+        #expect(s.outputs(after) == s.outputs(first))
+        #expect(Set(after.entries.map(\.hour)) == Set(first.entries.map(\.hour)))
+    }
+
+    @Test func unreadableFilesAreSetAside() async throws {
+        let s = try Setup()
+        try FileManager.default.createDirectory(at: s.paths.support, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: s.paths.spendFile)
+        _ = await s.run()
+        let files = try FileManager.default.contentsOfDirectory(atPath: s.paths.support.path)
+        #expect(files.contains { $0.hasPrefix("spend.unreadable-") && $0.hasSuffix(".json") })
+    }
+
+    @Test func limitHistoryIsKeptForGood() async throws {
+        let s = try Setup()
+        var h = UsageHistory()
+        let old = Date(timeIntervalSince1970: 1_760_000_000) // about a year earlier
+        h.add(Sample(tool: .codex, minutes: 10080, resetsAt: old.addingTimeInterval(86400), reading: Reading(t: old, pct: 42)))
+        try AtomicJSON.write(h, to: s.paths.historyFile)
+        _ = await s.run()
+        let saved = try #require(AtomicJSON.read(UsageHistory.self, from: s.paths.historyFile))
+        #expect(saved.windows.contains { $0.peak == 42 })
+    }
+}

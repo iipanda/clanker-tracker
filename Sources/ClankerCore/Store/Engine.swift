@@ -63,8 +63,6 @@ public actor Engine {
     private var watchers: [FileWatcher] = []
     private let log = Logger(subsystem: "io.github.iipanda.clankertracker", category: "engine")
 
-    /// Limit history older than this is dropped (spend history is kept).
-    public static let retention: TimeInterval = 10 * 7 * 24 * 3600
     /// How often prices are downloaded.
     public static let priceRefresh: TimeInterval = 24 * 3600
 
@@ -75,9 +73,11 @@ public actor Engine {
         self.paths = paths
         self.downloadsPrices = downloadsPrices
         (updates, continuation) = AsyncStream.makeStream(of: EngineUpdate.self, bufferingPolicy: .bufferingNewest(1))
-        history = AtomicJSON.read(UsageHistory.self, from: paths.historyFile) ?? UsageHistory()
+        // History and spend are the app's own record, kept after the tools delete old logs: a file
+        // that can't be read is set aside rather than overwritten.
+        history = AtomicJSON.readKeepingUnreadable(UsageHistory.self, from: paths.historyFile) ?? UsageHistory()
         state = AtomicJSON.read(EngineState.self, from: paths.stateFile) ?? EngineState()
-        spend = AtomicJSON.read(SpendLedger.self, from: paths.spendFile) ?? SpendLedger()
+        spend = AtomicJSON.readKeepingUnreadable(SpendLedger.self, from: paths.spendFile) ?? SpendLedger()
         seen = Self.readSeen(paths.seenFile)
         let fetched = AtomicJSON.read(PriceTable.self, from: paths.pricesFile)
         prices = fetched.map { PriceTable.bundled.overlaid(with: $0) } ?? .bundled
@@ -137,6 +137,8 @@ public actor Engine {
         state.codexCursors = [:]
         state.codexContexts = [:]
         state.transcriptCursors = [:]
+        // Rebuilt from the logs that still exist; older hours come back from the saved ledger at the end.
+        let saved = spend
         spend = SpendLedger()
         seen = [:]
 
@@ -179,6 +181,7 @@ public actor Engine {
             }
         }
 
+        spend = spend.keeping(saved)
         backfill = nil
         state.backfillCompletedAt = Date()
         state.spendBackfillCompletedAt = Date()
@@ -409,9 +412,11 @@ public actor Engine {
     }
 
     private func saveNow() {
-        history.prune(before: Date().addingTimeInterval(-Self.retention))
         do {
+            // Limit history is kept for good (it's small); forecasts learn from the recent part.
             try AtomicJSON.write(history, to: paths.historyFile)
+            // Mid re-read the ledger is incomplete: keep the saved one until the re-read finishes.
+            guard backfill == nil else { return }
             try AtomicJSON.write(spend, to: paths.spendFile)
             try Self.writeSeen(seen, to: paths.seenFile)
             try AtomicJSON.write(state, to: paths.stateFile)

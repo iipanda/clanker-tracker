@@ -95,6 +95,28 @@ public struct SpendLedger: Codable, Sendable, Equatable {
         }
     }
 
+    /// This ledger plus `older`'s hours from before this one's data starts, per tool: a re-read of
+    /// the logs replaces just the period the remaining logs cover, and everything older is kept.
+    public func keeping(_ older: SpendLedger) -> SpendLedger {
+        var firstHour: [Tool: Int] = [:]
+        for e in entries { firstHour[e.tool] = min(firstHour[e.tool] ?? .max, e.hour) }
+        var merged = self
+        for e in older.entries where e.hour < firstHour[e.tool] ?? .max {
+            merged.add(entry: e)
+        }
+        return merged
+    }
+
+    mutating func add(entry e: Entry) {
+        let key = Key(tool: e.tool, model: e.model, fast: e.fast, context: e.context, hour: e.hour)
+        if let i = index[key] {
+            entries[i].tokens += e.tokens
+        } else {
+            index[key] = entries.count
+            entries.append(e)
+        }
+    }
+
     public var firstDate: Date? { entries.map(\.hour).min().map { Date(timeIntervalSince1970: TimeInterval($0) * 3600) } }
 
     /// Totals per model for hours starting in [from, to).
