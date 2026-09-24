@@ -9,8 +9,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let model: AppModel
 
+    private let open: (Pane) -> Void
+
     init(model: AppModel, open: @escaping (Pane) -> Void) {
         self.model = model
+        self.open = open
         super.init()
 
         let hosting = NSHostingController(rootView: PopoverView(model: model, open: { [weak self] pane in
@@ -25,6 +28,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         if let button = item.button {
             button.target = self
             button.action = #selector(toggle)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.imagePosition = .imageLeading
         }
         observe()
@@ -32,6 +36,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     @objc private func toggle() {
         guard let button = item.button else { return }
+        // Right-click (or Control-click) opens a small menu instead of the summary.
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            popover.performClose(nil)
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Open Clanker Tracker", action: #selector(openWindow), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Quit Clanker Tracker", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
+            return
+        }
         if popover.isShown {
             popover.performClose(nil)
         } else {
@@ -40,6 +55,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             popover.contentViewController?.view.window?.makeKey()
         }
     }
+
+    @objc private func openWindow() { open(.overview) }
+    @objc private func openSettings() { open(.settings) }
 
     private func observe() {
         withObservationTracking {

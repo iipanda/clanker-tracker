@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: Window
 
+    @objc func closeWindowFromQuitShortcut() { window?.performClose(nil) }
+
     @objc func showOverview() { show(.overview) }
     @objc func showSettings() { show(.settings) }
 
@@ -93,7 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         app.addItem(settings)
         app.addItem(.separator())
         app.addItem(withTitle: "Hide Clanker Tracker", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        app.addItem(withTitle: "Quit Clanker Tracker", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        // ⌘Q closes the window and keeps tracking in the menu bar; quitting is ⌥⌘Q (or Quit in the
+        // menu bar icon's menu).
+        let close = NSMenuItem(title: "Close Window", action: #selector(closeWindowFromQuitShortcut), keyEquivalent: "q")
+        close.target = self
+        app.addItem(close)
+        let quit = NSMenuItem(title: "Quit Clanker Tracker", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.keyEquivalentModifierMask = [.command, .option]
+        app.addItem(quit)
         appItem.submenu = app
         main.addItem(appItem)
 

@@ -129,6 +129,40 @@ if let i = arguments.firstIndex(of: "--backtest"), i + 1 < arguments.count {
     exit(0)
 }
 
+if arguments.contains("--explain") {
+    // How the current Codex weekly forecast was made, from the app's saved history (read-only).
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    let history = try decoder.decode(UsageHistory.self, from: Data(contentsOf: AppPaths.standard.historyFile))
+    let now = Date()
+    for f in history.currentForecasts(now: now) where !f.isReset {
+        print("\n== \(f.tool.displayName) \(f.window.label): \(Fmt.pct(f.used, digits: 1)) used, resets \(Fmt.dateClock(f.end))")
+        print("pace last \(Int(f.lookbackHours))h \(Fmt.rate(f.pace))%/h · sustainable \(Fmt.rate(f.sustainable))%/h · learned from \(f.learnedFrom) past windows")
+        let input = EstimationInput(window: f.window, now: now, past: history.pastSeries(tool: f.tool, minutes: f.window.minutes, before: now))
+        let estimator = Estimators.chosen(minutes: f.window.minutes)
+        let pattern = (estimator as? LearnedPattern) ?? ((estimator as? Blend)?.a as? LearnedPattern)
+        if let pattern, let e = pattern.explain(input) {
+            print(String(format: "usual %.2f%%/h on average · this window %.2fx busier than usual (used: %.2fx) · recent %.2f%%/h fading over %@",
+                         e.mean, e.intensity, e.cappedIntensity, e.recentRate, pattern.fade.map { Fmt.duration(hours: $0 / 3600) } ?? "–"))
+            let peak = e.usual.max() ?? 1
+            for (h, r) in e.usual.enumerated() {
+                print(String(format: "  %02d:00  %5.2f%%/h  ", h, r) + String(repeating: "█", count: Int((r / peak * 30).rounded())))
+            }
+        }
+        print("projection (hourly):")
+        var t = now, last = f.used
+        while t < min(f.end, (f.runoutDate ?? f.end).addingTimeInterval(3600)) {
+            t = t.addingTimeInterval(3600)
+            let v = f.projection.value(at: t)
+            print("  \(Fmt.dayClock(t))  \(Fmt.pct(v, digits: 1))  (+\(String(format: "%.2f", v - last)))")
+            last = v
+            if v >= 100 { break }
+        }
+        print("runs out: \(f.runoutDate.map(Fmt.dateClock) ?? "not before reset") · at reset: \(Fmt.pct(f.projected))")
+    }
+    exit(0)
+}
+
 if arguments.contains("--install-collector") || arguments.contains("--remove-collector") {
     // Same as Install / Remove in Settings → Data sources.
     let paths = AppPaths.standard
@@ -194,6 +228,40 @@ if let i = arguments.firstIndex(of: "--backtest"), i + 1 < arguments.count {
             }
             print("  error at longest horizon by weeks of history · \(s.name): " + curve.joined(separator: ", "))
         }
+    }
+    exit(0)
+}
+
+if arguments.contains("--explain") {
+    // How the current Codex weekly forecast was made, from the app's saved history (read-only).
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    let history = try decoder.decode(UsageHistory.self, from: Data(contentsOf: AppPaths.standard.historyFile))
+    let now = Date()
+    for f in history.currentForecasts(now: now) where !f.isReset {
+        print("\n== \(f.tool.displayName) \(f.window.label): \(Fmt.pct(f.used, digits: 1)) used, resets \(Fmt.dateClock(f.end))")
+        print("pace last \(Int(f.lookbackHours))h \(Fmt.rate(f.pace))%/h · sustainable \(Fmt.rate(f.sustainable))%/h · learned from \(f.learnedFrom) past windows")
+        let input = EstimationInput(window: f.window, now: now, past: history.pastSeries(tool: f.tool, minutes: f.window.minutes, before: now))
+        let estimator = Estimators.chosen(minutes: f.window.minutes)
+        let pattern = (estimator as? LearnedPattern) ?? ((estimator as? Blend)?.a as? LearnedPattern)
+        if let pattern, let e = pattern.explain(input) {
+            print(String(format: "usual %.2f%%/h on average · this window %.2fx busier than usual (used: %.2fx) · recent %.2f%%/h fading over %@",
+                         e.mean, e.intensity, e.cappedIntensity, e.recentRate, pattern.fade.map { Fmt.duration(hours: $0 / 3600) } ?? "–"))
+            let peak = e.usual.max() ?? 1
+            for (h, r) in e.usual.enumerated() {
+                print(String(format: "  %02d:00  %5.2f%%/h  ", h, r) + String(repeating: "█", count: Int((r / peak * 30).rounded())))
+            }
+        }
+        print("projection (hourly):")
+        var t = now, last = f.used
+        while t < min(f.end, (f.runoutDate ?? f.end).addingTimeInterval(3600)) {
+            t = t.addingTimeInterval(3600)
+            let v = f.projection.value(at: t)
+            print("  \(Fmt.dayClock(t))  \(Fmt.pct(v, digits: 1))  (+\(String(format: "%.2f", v - last)))")
+            last = v
+            if v >= 100 { break }
+        }
+        print("runs out: \(f.runoutDate.map(Fmt.dateClock) ?? "not before reset") · at reset: \(Fmt.pct(f.projected))")
     }
     exit(0)
 }

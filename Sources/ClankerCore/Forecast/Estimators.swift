@@ -236,7 +236,7 @@ public struct LearnedPattern: UsageEstimator {
     public let fade: TimeInterval?
     public let recent: TimeInterval
     /// Leave the current window's last hours out of the pattern, so an ongoing burst isn't also
-    /// learned as a habit.
+    /// learned as a habit (when there are past windows to learn from).
     public let holdOut: TimeInterval
     /// Cap on how much busier than usual this window can be assumed to stay.
     public let maxIntensity: Double
@@ -272,7 +272,9 @@ public struct LearnedPattern: UsageEstimator {
         var sum = [Double](repeating: 0, count: binCount), weight = [Double](repeating: 0, count: binCount)
         let now = input.now.timeIntervalSince1970
         var totalW = 0.0, totalRate = 0.0
-        let heldOut = input.current.increments.count - Int(holdOut / input.current.step)
+        // With no past windows, the current one is all there is to learn from: keep all of it.
+        let heldOut = input.past.isEmpty ? input.current.increments.count
+            : input.current.increments.count - Int(holdOut / input.current.step)
         for (k, series) in (input.past + [input.current]).enumerated() {
             let perHour = 3600 / series.step
             let t0 = series.start.timeIntervalSince1970
@@ -296,12 +298,26 @@ public struct LearnedPattern: UsageEstimator {
         return (rates, mean)
     }
 
-    public func project(_ input: EstimationInput) -> Projection {
-        let s = step(input)
-        guard let (rates, mean) = profile(input) else {
-            return LinearPace(lookback: 6 * 3600).project(input)
-        }
-        // How busy this window has been compared with the pattern, recent hours weighted most.
+    /// What the pattern is based on, for `--explain`.
+    public struct Explanation: Sendable {
+        /// Usual percent per hour for each local hour of the day (or bin).
+        public let usual: [Double]
+        public let mean: Double
+        /// How much busier than usual this window is (before and after the cap).
+        public let intensity: Double
+        public let cappedIntensity: Double
+        /// Percent per hour over the recent lookback, fading into the pattern.
+        public let recentRate: Double
+    }
+
+    public func explain(_ input: EstimationInput) -> Explanation? {
+        guard let (rates, mean) = profile(input) else { return nil }
+        let (raw, capped) = intensity(input, rates: rates, mean: mean)
+        return Explanation(usual: rates, mean: mean, intensity: raw, cappedIntensity: capped,
+                           recentRate: LinearPace.pace(input, lookback: recent))
+    }
+
+    func intensity(_ input: EstimationInput, rates: [Double], mean: Double) -> (raw: Double, capped: Double) {
         let cur = input.current
         let decay = pow(0.5, cur.step / intensityHalfLife)
         var w = 1.0, observed = 0.0, expected = 0.0
@@ -311,7 +327,18 @@ public struct LearnedPattern: UsageEstimator {
             w *= decay
         }
         let shrink = mean * 6 // about six hours of usual usage
-        let intensity = min(maxIntensity, (observed + shrink) / (expected + shrink))
+        let raw = (observed + shrink) / (expected + shrink)
+        return (raw, min(maxIntensity, raw))
+    }
+
+    public func project(_ input: EstimationInput) -> Projection {
+        let s = step(input)
+        guard let (rates, mean) = profile(input) else {
+            return LinearPace(lookback: 6 * 3600).project(input)
+        }
+        // How busy this window has been compared with the pattern, recent hours weighted most.
+        let cur = input.current
+        let intensity = self.intensity(input, rates: rates, mean: mean).capped
 
         let recentRate = LinearPace.pace(input, lookback: recent)
         let startStep = cur.increments.count

@@ -39,6 +39,8 @@ and starts it. Add `--no-open-at-login` to leave your login items as they are.
 - **Spend**: the API-equivalent cost of your usage per day, week or month, per tool and per model,
   with the current period compared to the same point in the previous one. The dropdown shows today
   and this week, and each limit window shows what it has cost so far.
+- **Quitting**: ⌘Q in the window closes the window and the app keeps tracking in the menu bar.
+  To quit, right-click the menu bar icon → Quit Clanker Tracker, use Quit in the dropdown, or press ⌥⌘Q.
 - **Notifications**: once per window when the forecast runs out before the reset, when usage
   passes a threshold (80% by default), and, if you turn it on, when a limit resets. On 5-hour
   limits, a spike gets its own alert ("runs out at 15:40 if you keep this pace"), which re-arms
@@ -193,6 +195,7 @@ The binary takes a few flags that help while developing:
 | --- | --- |
 | `--setup [--no-open-at-login]` | Confirms Codex tracking, sets up the Claude Code collector, adds the login item, starts the app |
 | `--dump` | Reads everything once and prints the current limits as JSON |
+| `--explain` | Shows how each current forecast was made: your usual hours, this window's intensity, the hourly projection |
 | `--export-history <file>` / `--backtest <file>` | Saves every limit window, then replays them to score forecast estimators (see above) |
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |

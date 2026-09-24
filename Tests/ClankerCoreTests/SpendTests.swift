@@ -247,3 +247,17 @@ import Testing
         #expect(score.truePositives > 0 && score.falsePositives == 0)
     }
 }
+
+@Suite struct FirstWindowTests {
+    /// A first window with all its use in the last few hours: with nothing else to learn from, the
+    /// forecast keeps that use instead of expecting almost none.
+    @Test func firstWindowLearnsFromItsRecentUse() {
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let start = now.addingTimeInterval(-40 * 3600)
+        let w = LimitWindow(tool: .claude, minutes: 10080, resetsAt: start.addingTimeInterval(7 * 86400),
+                            points: [Reading(t: now.addingTimeInterval(-5 * 3600), pct: 1), Reading(t: now.addingTimeInterval(-3600), pct: 5)])
+        let f = Forecast(w, heartbeat: now, now: now)
+        #expect(f.learnedFrom == 0)
+        #expect(f.projected > 10)
+    }
+}
