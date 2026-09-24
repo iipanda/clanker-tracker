@@ -112,7 +112,7 @@ struct SettingsView: View {
         }
         Toggle(isOn: Binding(get: { model.settings.checkUsage }, set: { model.setUsageChecks($0) })) {
             Text("Check limits with Anthropic, at most every 30 minutes")
-            Text("Reads your Fable limit (and the others while Claude Code is idle) the way /usage does, using Claude Code's login from your Keychain. macOS asks once to allow it. Between checks, Fable is estimated from your Fable usage.")
+            Text("Reads your Fable limit (and the others while Claude Code is idle) the way /usage does, using Claude Code's login from your Keychain. If macOS asks, choose Always Allow. Between checks, Fable is estimated from your Fable usage.")
         }
         if model.settings.checkUsage, let check = model.usageCheck {
             Text(usageCheckText(check)).font(.caption).foregroundStyle(check.outcome == "updated" ? Palette.ok : .secondary)

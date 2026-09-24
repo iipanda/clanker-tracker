@@ -224,6 +224,11 @@ final class AppModel {
     }
 
     /// API-equivalent cost of a limit window so far (hour resolution); for a scoped limit, just its models.
+    /// How much of a scoped limit (Fable) a dollar of its usage takes, for the estimate.
+    func calibration(_ tool: Tool, scope: String) -> ScopedEstimate.Calibration? {
+        ScopedEstimate.calibration(history: recorded, spend: spend, prices: prices, tool: tool, scope: scope, now: now)
+    }
+
     func windowSpend(_ tool: Tool, scope: String? = nil, from start: Date, to end: Date) -> SpendSummary {
         let rows = spendRows(tool: tool, DateInterval(start: start, end: max(start, min(end, now.addingTimeInterval(3600)))))
         return SpendSummary(rows.filter { scope == nil || $0.model.lowercased().contains(scope!) }, prices: prices)

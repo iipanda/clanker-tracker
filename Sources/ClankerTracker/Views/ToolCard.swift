@@ -137,6 +137,13 @@ struct ToolCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// For a scoped limit (Fable): how much of it $100 of usage takes, which the estimate builds on.
+    private func calibrationRow(_ f: Forecast) -> [(String, String)] {
+        guard let scope = f.window.scope, let name = f.window.scopeName, let c = model.calibration(tool, scope: scope) else { return [] }
+        let rate = Fmt.pct(c.percentPerDollar * 100, digits: 1)
+        return [("Each $100 of \(name) uses", c.earlier.map { "\(rate) (earlier weeks \(Fmt.pct($0 * 100, digits: 1)))" } ?? rate)]
+    }
+
     @ViewBuilder private func details(_ f: Forecast) -> some View {
         let short = f.window.isShort
         let lead = f.used - f.even
@@ -151,7 +158,7 @@ struct ToolCard: View {
             ("API equivalent this window", Fmt.usd(model.windowSpend(tool, scope: f.window.scope, from: f.start, to: f.end).usd)),
             (f.isEstimated ? "Last reported reading" : "Last reading",
              f.lastReported.map { Fmt.ago(f.now.timeIntervalSince($0.t)) } ?? "None yet in this window"),
-        ]
+        ] + calibrationRow(f)
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
             ForEach(rows, id: \.0) { row in
                 GridRow {

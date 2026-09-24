@@ -28,6 +28,35 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         #expect(samples.map(\.reading.pct) == [5, 6, 49])
     }
 
+    @Test func scopedLimitsMatchByModelAndSkipAllModels() {
+        let iso = ISO8601DateFormatter()
+        let reset = iso.string(from: now.addingTimeInterval(3 * 86400))
+        func scoped(_ pct: Double, id: String?, name: String?, resets: String? = nil) -> [String: Any] {
+            let null: (String?) -> Any = { $0.map { $0 as Any } ?? NSNull() }
+            return ["kind": "weekly_scoped", "percent": pct, "resets_at": null(resets),
+                    "scope": ["model": ["id": null(id), "display_name": null(name)]]]
+        }
+        let usage: [String: Any] = ["limits": [
+            ["kind": "weekly_all", "percent": 6, "resets_at": reset],
+            scoped(0, id: "claude-fable-5-1", name: nil),
+            scoped(12, id: nil, name: "Fable 5", resets: reset),
+            scoped(30, id: nil, name: "All models", resets: reset),
+        ]]
+        let samples = ClaudeParser.samples(usage: usage, at: now).filter { $0.scope != nil }
+        #expect(samples.map(\.scope) == ["fable"])
+        #expect(samples.first?.reading.pct == 12)
+    }
+
+    @Test func anUnusedScopedLimitReadsZeroUntilTheWeeklyReset() {
+        let reset = ISO8601DateFormatter().string(from: now.addingTimeInterval(3 * 86400))
+        let usage: [String: Any] = ["limits": [
+            ["kind": "weekly_all", "percent": 6, "resets_at": reset],
+            ["kind": "weekly_scoped", "percent": 0, "resets_at": NSNull(), "scope": ["model": ["display_name": "Fable"]]],
+        ]]
+        let fable = ClaudeParser.samples(usage: usage, at: now).first { $0.scope == "fable" }
+        #expect(fable?.reading.pct == 0 && fable?.resetsAt == now.addingTimeInterval(3 * 86400))
+    }
+
     @Test func statusLineModelKeysBecomeScopes() {
         let samples = ClaudeParser.samples(rateLimits: ["seven_day_opus": ["used_percentage": 12, "resets_at": now.timeIntervalSince1970 + 86400]],
                                            at: now, percentKey: "used_percentage")
@@ -74,7 +103,7 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         spend.add(fableUsage(17.9, at: now.addingTimeInterval(-3600)))
         let h = history(fable: [(now.addingTimeInterval(-2 * 3600), 49)])
 
-        let k = try #require(ScopedEstimate.percentPerDollar(history: h, spend: spend, prices: prices, tool: .claude, scope: "fable", now: now))
+        let k = try #require(ScopedEstimate.calibration(history: h, spend: spend, prices: prices, tool: .claude, scope: "fable", now: now)?.percentPerDollar)
         #expect(abs(k - 0.28) < 1e-9)
         let f = try #require(ScopedEstimate.apply(to: h, spend: spend, prices: prices, now: now).currentForecasts(for: .claude, now: now).first)
         #expect(f.isEstimated)
@@ -106,6 +135,30 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         #expect(estimated.windows.count == h.windows.count + 1)
     }
 
+    /// Past weekly windows, each with its latest reading after `dollars` of Fable.
+    func weeks(_ readings: [(pct: Double, dollars: Double)]) -> (UsageHistory, SpendLedger) {
+        var h = UsageHistory(), spend = SpendLedger()
+        for (i, r) in readings.enumerated() {
+            let end = now.addingTimeInterval(-Double(readings.count - 1 - i) * 7 * 86400 + 86400)
+            spend.add(fableUsage(r.dollars, at: end.addingTimeInterval(-3 * 86400)))
+            h.add(Sample(tool: .claude, minutes: 10080, resetsAt: end, reading: Reading(t: end.addingTimeInterval(-2 * 86400), pct: r.pct), scope: "fable"))
+        }
+        return (h, spend)
+    }
+
+    @Test func calibratesFromTheMedianOfRecentWeeks() throws {
+        let (h, spend) = weeks([(20, 100), (90, 100), (25, 100), (30, 100)])
+        let c = try #require(ScopedEstimate.calibration(history: h, spend: spend, prices: prices, tool: .claude, scope: "fable", now: now))
+        #expect(abs(c.percentPerDollar - 0.275) < 1e-9 && c.earlier == nil)
+    }
+
+    @Test func followsAChangeInTheLimit() throws {
+        let (h, spend) = weeks([(25, 100), (28, 100), (60, 100)])
+        let c = try #require(ScopedEstimate.calibration(history: h, spend: spend, prices: prices, tool: .claude, scope: "fable", now: now))
+        #expect(abs(c.percentPerDollar - 0.6) < 1e-9)
+        #expect(abs((c.earlier ?? 0) - 0.265) < 1e-9)
+    }
+
     @Test func noEstimateWithoutACalibratingReading() {
         var spend = SpendLedger()
         spend.add(fableUsage(1, at: now.addingTimeInterval(-3600)))
@@ -122,7 +175,7 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         func hit() { lock.withLock { n += 1 } }
     }
 
-    func api(expires: Date?, status: Int = 200, calls: Calls) -> ClaudeUsageAPI {
+    func api(expires: Date?, status: Int = 200, headers: [String: String]? = nil, calls: Calls) -> ClaudeUsageAPI {
         ClaudeUsageAPI(
             credentials: { .init(accessToken: "test-token", expiresAt: expires) },
             transport: { request in
@@ -130,30 +183,46 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
                 #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
                 #expect(request.value(forHTTPHeaderField: "anthropic-beta") == "oauth-2025-04-20")
                 let body = try JSONSerialization.data(withJSONObject: usageJSON(at: Date()))
-                return (body, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+                return (body, HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!)
             }
         )
     }
 
     @Test func readsLimitsFromTheResponse() async {
         let calls = Calls()
-        let (outcome, samples) = await api(expires: Date().addingTimeInterval(3600), calls: calls).fetch()
-        #expect(outcome == .updated(readings: 3))
-        #expect(samples.contains { $0.scope == "fable" && $0.reading.pct == 49 })
+        let response = await api(expires: Date().addingTimeInterval(3600), calls: calls).fetch()
+        #expect(response.outcome == .updated(readings: 3))
+        #expect(response.samples.contains { $0.scope == "fable" && $0.reading.pct == 49 })
     }
 
     @Test func anExpiredLoginIsLeftAlone() async {
         let calls = Calls()
-        let (outcome, samples) = await api(expires: Date().addingTimeInterval(-60), calls: calls).fetch()
-        #expect(outcome == .loginExpired && samples.isEmpty && calls.count == 0)
+        let response = await api(expires: Date().addingTimeInterval(-60), calls: calls).fetch()
+        #expect(response.outcome == .loginExpired && response.samples.isEmpty && calls.count == 0)
     }
 
     @Test func errorsBackOff() async {
         let calls = Calls()
-        let (outcome, _) = await api(expires: nil, status: 429, calls: calls).fetch()
-        #expect(outcome == .failed(status: 429))
-        #expect(ClaudeUsageAPI.backoff(after: outcome) == 7200)
-        #expect(ClaudeUsageAPI.backoff(after: .updated(readings: 1)) == nil)
+        let limited = await api(expires: nil, status: 429, calls: calls).fetch()
+        #expect(limited.outcome == .failed(status: 429))
+        #expect(ClaudeUsageAPI.backoff(after: limited) == 3600)
+        let failed = await api(expires: nil, status: 500, calls: calls).fetch()
+        #expect(ClaudeUsageAPI.backoff(after: failed) == 3600)
+        #expect(ClaudeUsageAPI.backoff(after: .init(outcome: .updated(readings: 1))) == nil)
+    }
+
+    @Test func rateLimitsWaitAsLongAsTheServerAsks() async {
+        let calls = Calls()
+        let response = await api(expires: nil, status: 429, headers: ["Retry-After": "5400"], calls: calls).fetch()
+        #expect(response.retryAfter == 5400 && ClaudeUsageAPI.backoff(after: response) == 5400)
+        #expect(ClaudeUsageAPI.retryAfter("Thu, 01 Oct 2026 12:00:00 GMT", now: ISOTime.parse("2026-10-01T11:00:00Z")!) == 3600)
+        #expect(ClaudeUsageAPI.backoff(after: .init(outcome: .failed(status: 429), retryAfter: 9e9)) == 86400)
+    }
+
+    @Test func credentialsNeedAClaudeLogin() {
+        let login = #"{"claudeAiOauth":{"accessToken":"abc","expiresAt":1790000000000}}"#
+        #expect(ClaudeUsageAPI.credentials(from: Data(login.utf8))?.expiresAt == Date(timeIntervalSince1970: 1_790_000_000))
+        #expect(ClaudeUsageAPI.credentials(from: Data(#"{"mcpOAuth":{"x":{}}}"#.utf8)) == nil)
     }
 
     @Test func checksAtMostEveryThirtyMinutesAndOnlyWhenUseful() {

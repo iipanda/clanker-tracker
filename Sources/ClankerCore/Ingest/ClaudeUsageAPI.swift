@@ -1,9 +1,9 @@
 import Foundation
-import Security
 
 /// Asks Anthropic for your current Claude limits, the way Claude Code's `/usage` does, using Claude
-/// Code's own login from the Keychain. Opt-in and infrequent (see `shouldCheck`). It never refreshes
-/// the login token: when it has expired, the check waits until Claude Code refreshes it.
+/// Code's own login from the Keychain. Opt-in and infrequent (see `shouldCheck`). It uses the login
+/// token as is and leaves refreshing it to Claude Code (a refresh would rotate Claude Code's login), so
+/// when it has expired, the check waits for Claude Code's next refresh and reads the login again.
 public struct ClaudeUsageAPI: Sendable {
     public struct Credentials: Sendable {
         public var accessToken: String
@@ -24,52 +24,92 @@ public struct ClaudeUsageAPI: Sendable {
         case failed(status: Int?)
     }
 
+    public struct Response: Sendable {
+        public var outcome: Outcome
+        public var samples: [Sample] = []
+        /// The server's Retry-After, in seconds.
+        public var retryAfter: TimeInterval?
+    }
+
     public static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     public static let keychainService = "Claude Code-credentials"
 
-    let credentials: @Sendable () -> Credentials?
+    let credentials: @Sendable () async -> Credentials?
     let transport: @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
-    public init(credentials: @escaping @Sendable () -> Credentials? = ClaudeUsageAPI.keychainCredentials,
+    public init(credentials: @escaping @Sendable () async -> Credentials? = ClaudeUsageAPI.claudeCodeCredentials,
                 transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(for: $0) }) {
         self.credentials = credentials
         self.transport = transport
     }
 
-    public func fetch(now: Date = Date()) async -> (Outcome, [Sample]) {
-        guard let creds = credentials() else { return (.noLogin, []) }
-        if let expires = creds.expiresAt, expires <= now.addingTimeInterval(60) { return (.loginExpired, []) }
+    public func fetch(now: Date = Date()) async -> Response {
+        guard let creds = await credentials() else { return Response(outcome: .noLogin) }
+        if let expires = creds.expiresAt, expires <= now.addingTimeInterval(60) { return Response(outcome: .loginExpired) }
         var request = URLRequest(url: Self.endpoint, timeoutInterval: 20)
         request.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("clanker-tracker", forHTTPHeaderField: "User-Agent")
-        guard let (data, response) = try? await transport(request) else { return (.failed(status: nil), []) }
-        let status = (response as? HTTPURLResponse)?.statusCode
+        guard let (data, response) = try? await transport(request) else { return Response(outcome: .failed(status: nil)) }
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode
         guard status == 200, let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            return (status == 401 ? .loginExpired : .failed(status: status), [])
+            let retryAfter = Self.retryAfter(http?.value(forHTTPHeaderField: "Retry-After"), now: now)
+            return Response(outcome: status == 401 ? .loginExpired : .failed(status: status), retryAfter: retryAfter)
         }
         let usage = (root["utilization"] as? [String: Any]) ?? root
         let samples = ClaudeParser.samples(usage: usage, at: now)
-        return (.updated(readings: samples.count), samples)
+        return Response(outcome: .updated(readings: samples.count), samples: samples)
     }
 
-    /// Claude Code's login, from the Keychain item it keeps (macOS asks once for access).
-    public static let keychainCredentials: @Sendable () -> Credentials? = {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data,
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+    /// Retry-After as seconds or an HTTP date.
+    static func retryAfter(_ value: String?, now: Date) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
+        if let seconds = TimeInterval(value) { return max(0, seconds) }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "GMT")
+        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return f.date(from: value).map { max(0, $0.timeIntervalSince(now)) }
+    }
+
+    /// Claude Code's login: the Keychain item it keeps, read with `/usr/bin/security` the way Claude Code
+    /// itself writes it (so macOS asks at most once, even as Claude Code rotates the item), or
+    /// `~/.claude/.credentials.json` where Claude Code keeps it in a file.
+    public static let claudeCodeCredentials: @Sendable () async -> Credentials? = {
+        if let data = await run("/usr/bin/security", ["find-generic-password", "-s", keychainService, "-w"]),
+           let creds = credentials(from: data) {
+            return creds
+        }
+        let file = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/.credentials.json")
+        return (try? Data(contentsOf: file)).flatMap(credentials(from:))
+    }
+
+    /// The `claudeAiOauth` login in Claude Code's credentials JSON (items holding only MCP logins have none).
+    static func credentials(from data: Data) -> Credentials? {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let oauth = root["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty
         else { return nil }
-        let expires = ClaudeParser.date(oauth["expiresAt"])
-        return Credentials(accessToken: token, expiresAt: expires)
+        return Credentials(accessToken: token, expiresAt: ClaudeParser.date(oauth["expiresAt"]))
+    }
+
+    /// Runs a command and returns its output, or nil if it fails or takes over 30 s (e.g. an unanswered
+    /// Keychain prompt).
+    static func run(_ path: String, _ arguments: [String]) async -> Data? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) { if process.isRunning { process.terminate() } }
+        // Read while it runs, so a large output can't fill the pipe and stall it.
+        let data = await Task.detached { out.fileHandleForReading.readDataToEndOfFile() }.value
+        process.waitUntilExit()
+        return process.terminationStatus == 0 && process.terminationReason == .exit ? data : nil
     }
 
     /// Whether to check now: at most every 30 minutes, only while Claude Code is in use or when the
@@ -83,12 +123,14 @@ public struct ClaudeUsageAPI: Sendable {
         return active || stale
     }
 
-    /// How long to wait after an outcome before trying again, beyond the usual 30 minutes.
-    public static func backoff(after outcome: Outcome) -> TimeInterval? {
-        switch outcome {
-        case .updated: nil
-        case .loginExpired, .noLogin: 3600
-        case .failed(let status): status == 429 ? 2 * 3600 : 3600
+    /// How long to wait after an outcome before trying again, beyond the usual 30 minutes. A rate limit
+    /// waits as long as the server asks (an hour if it doesn't say, a day at most).
+    public static func backoff(after response: Response) -> TimeInterval? {
+        switch response.outcome {
+        case .updated, .loginExpired: nil
+        case .noLogin: 3600
+        case .failed(let status) where status == 429: min(24 * 3600, response.retryAfter ?? 3600)
+        case .failed: max(3600, response.retryAfter ?? 0)
         }
     }
 }

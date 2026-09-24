@@ -12,26 +12,43 @@ public enum ScopedEstimate {
     static let minCost = 5.0
     static let minPercent = 3.0
 
-    /// Percent of the scoped limit per API-equivalent dollar, from recent reported readings.
-    public static func percentPerDollar(history: UsageHistory, spend: SpendLedger, prices: PriceTable,
-                                        tool: Tool, scope: String, now: Date) -> Double? {
+    /// How much of a scoped limit a dollar of API-equivalent usage takes.
+    public struct Calibration: Sendable, Equatable {
+        public var percentPerDollar: Double
+        /// The rate in earlier windows, when the latest reading shows it has changed (Anthropic adjusts
+        /// limits from time to time).
+        public var earlier: Double?
+    }
+
+    /// From the latest reported reading of each of the last few windows: their median, or the latest
+    /// alone when it differs from the earlier ones by more than 1.5×.
+    public static func calibration(history: UsageHistory, spend: SpendLedger, prices: PriceTable,
+                                   tool: Tool, scope: String, now: Date) -> Calibration? {
         let entries = scopedEntries(spend, tool: tool, scope: scope)
-        var samples: [(t: Date, k: Double)] = []
+        var samples: [(t: Date, k: Double, pct: Double)] = []
         for w in history.windows(for: tool) where w.scope == scope {
-            for r in w.points where !r.isEstimated && r.pct >= minPercent && r.t <= now {
+            for r in w.points.reversed() where !r.isEstimated && r.pct >= minPercent && r.t <= now {
                 let c = cost(entries, prices: prices, from: w.start, to: r.t)
-                if c >= minCost { samples.append((r.t, r.pct / c)) }
+                if c >= minCost {
+                    samples.append((r.t, r.pct / c, r.pct))
+                    break
+                }
             }
         }
-        let recent = samples.sorted { $0.t > $1.t }.prefix(5)
-        guard !recent.isEmpty else { return nil }
-        var sum = 0.0, weights = 0.0
-        for s in recent {
-            let w = pow(0.5, now.timeIntervalSince(s.t) / (14 * 86400))
-            sum += s.k * w
-            weights += w
+        let recent = samples.sorted { $0.t > $1.t }.prefix(4)
+        guard let latest = recent.first else { return nil }
+        if recent.count > 1, latest.pct >= 10 {
+            let earlier = median(recent.dropFirst().map(\.k))
+            if max(latest.k / earlier, earlier / latest.k) > 1.5 {
+                return Calibration(percentPerDollar: latest.k, earlier: earlier)
+            }
         }
-        return sum / weights
+        return Calibration(percentPerDollar: median(recent.map(\.k)))
+    }
+
+    static func median(_ values: [Double]) -> Double {
+        let v = values.sorted()
+        return v.count % 2 == 1 ? v[v.count / 2] : (v[v.count / 2 - 1] + v[v.count / 2]) / 2
     }
 
     /// A copy of `history` where each scoped limit's current window continues past its last reported
@@ -41,7 +58,7 @@ public enum ScopedEstimate {
         var out = history
         let scoped = Set(history.windows.compactMap { w in w.scope.map { (w.tool, $0, w.minutes) } }.map(Key.init))
         for key in scoped {
-            guard let k = percentPerDollar(history: history, spend: spend, prices: prices, tool: key.tool, scope: key.scope, now: now),
+            guard let k = calibration(history: history, spend: spend, prices: prices, tool: key.tool, scope: key.scope, now: now)?.percentPerDollar,
                   var window = history.current(tool: key.tool, kind: .init(minutes: key.minutes, scope: key.scope))
             else { continue }
             var base = window.lastReported.map { ($0.t, $0.pct) } ?? (window.start, 0)

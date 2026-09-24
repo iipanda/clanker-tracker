@@ -152,10 +152,10 @@ public actor Engine {
                                          newestScopedReading: newestScoped, backoffUntil: state.usageBackoffUntil)
         else { return }
         state.usageCheckAt = now
-        let (outcome, samples) = await usageAPI.fetch(now: now)
-        history.add(contentsOf: samples)
-        state.usageBackoffUntil = ClaudeUsageAPI.backoff(after: outcome).map { now.addingTimeInterval($0) }
-        state.usageCheckOutcome = switch outcome {
+        let response = await usageAPI.fetch(now: now)
+        history.add(contentsOf: response.samples)
+        state.usageBackoffUntil = ClaudeUsageAPI.backoff(after: response).map { now.addingTimeInterval($0) }
+        state.usageCheckOutcome = switch response.outcome {
         case .updated: "updated"
         case .noLogin: "noLogin"
         case .loginExpired: "loginExpired"

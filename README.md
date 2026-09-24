@@ -162,18 +162,23 @@ choosing. The app reads it whenever that file changes, along with the older copi
 
 Between readings, the app estimates the Fable limit from your Fable usage. Each reading pairs a
 percentage with the API-equivalent cost of your Fable usage so far in that window, which gives the
-share of the limit per dollar (for example 49% after $175). The estimate continues from the last
-reading with that rate, shows as "≈12%", and names the reading it builds on. The next reading
-replaces it. After a weekly reset the estimate starts again from 0%.
+share of the limit per dollar (for example 49% after $175). The app takes the median over the last
+few weeks, and follows the latest week alone when it differs by more than 1.5×, since Anthropic
+adjusts limits from time to time. The card's details show the rate as "Each $100 of Fable uses".
+The estimate continues from the last reading with that rate, shows as "≈12%", and names the reading
+it builds on. The next reading replaces it. After a weekly reset the estimate starts again from 0%,
+and a week where Fable stays unused reads 0% until the reset.
 
 For fresher readings, turn on **Settings → Data sources → Claude Code → Check limits with
 Anthropic**. The app then asks Anthropic for your current limits, the same request Claude Code's
 `/usage` makes, using Claude Code's login from your Keychain:
 
 - It checks at most every 30 minutes, while you're using Claude Code or when the last Fable reading
-  is more than 6 hours old. After an error it waits an hour, or two after a rate limit.
-- macOS asks once whether Clanker Tracker may read the "Claude Code-credentials" Keychain item, and
-  again after an update, since releases are signed ad hoc. Choose **Always Allow**.
+  is more than 6 hours old. After an error it waits an hour, and after a rate limit it waits as long
+  as Anthropic asks.
+- It reads the "Claude Code-credentials" Keychain item with `/usr/bin/security`, the same tool
+  Claude Code uses to save it, so access carries over as Claude Code updates the item. If macOS asks,
+  choose **Always Allow**.
 - It uses the login token as is and leaves refreshing it to Claude Code, so your Claude Code login
   stays exactly as it is. When the token has expired, the check waits for Claude Code's next refresh.
 - Settings shows when the last check ran and how it went.
