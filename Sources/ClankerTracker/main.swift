@@ -65,12 +65,140 @@ if arguments.contains("--setup") {
     exit(Setup.run(openAtLogin: !arguments.contains("--no-open-at-login")))
 }
 
+if let i = arguments.firstIndex(of: "--export-history"), i + 1 < arguments.count {
+    // Reads every log once and writes all limit windows (unpruned), for --backtest.
+    let out = URL(fileURLWithPath: arguments[i + 1])
+    Task.detached {
+        let engine = Engine(downloadsPrices: false)
+        await engine.start(watch: false)
+        let history = await engine.currentHistory()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try! encoder.encode(history).write(to: out)
+        print("\(history.windows.count) windows → \(out.path)")
+        exit(0)
+    }
+    dispatchMain()
+}
+
+if let i = arguments.firstIndex(of: "--backtest"), i + 1 < arguments.count {
+    // Replays past Codex windows against each estimator: --backtest <history.json from --export-history>
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    let history = try decoder.decode(UsageHistory.self, from: Data(contentsOf: URL(fileURLWithPath: arguments[i + 1])))
+    let sweep = arguments.contains("--sweep")
+    if arguments.contains("--spikes") {
+        // Forecast warnings plus "if you keep this pace" spike alerts, for 5-hour windows.
+        let bt = Backtest(history: history, tool: .codex, minutes: 300, config: .fiveHour)
+        let chosen = Estimators.chosen(minutes: 300)
+        let scores = [bt.run(LinearPace(lookback: 3600)), bt.run(chosen)] + [0.25, 0.5, 1].map { bt.run(chosen, spikeLookback: $0 * 3600) }
+        print(Backtest.table(scores, config: .fiveHour))
+        exit(0)
+    }
+    if arguments.contains("--learning") {
+        // How much better predictions get with more past history to learn from.
+        for (minutes, base) in [(10080, Backtest.Config.weekly), (300, Backtest.Config.fiveHour)] {
+            print("\n== Learning curve, Codex \(minutes == 10080 ? "weekly" : "5-hour"): active-use error at each horizon, by weeks of history")
+            let est = Estimators.chosen(minutes: minutes)
+            for weeks in [0, 1, 2, 4, 8, 52] {
+                var config = base
+                config.historyLimit = Double(weeks) * 7 * 86400
+                let bt = Backtest(history: history, tool: .codex, minutes: minutes, config: config)
+                let s = bt.run(est)
+                print(String(format: "  %2d weeks: ", weeks) + s.horizons.map { String(format: "%6.2f", $0.activeMAE) }.joined() + String(format: "   F1 %.2f", s.f1))
+            }
+        }
+        exit(0)
+    }
+    for (minutes, config) in [(10080, Backtest.Config.weekly), (300, Backtest.Config.fiveHour)] {
+        let bt = Backtest(history: history, tool: .codex, minutes: minutes, config: config)
+        let hits = bt.windows.filter { $0.window.peak >= config.ranOutAt }.count
+        print("\n== Codex \(minutes == 10080 ? "weekly" : "5-hour") windows: \(bt.windows.count) (\(hits) ran out)")
+        let estimators = sweep ? Estimators.sweep(minutes: minutes) : Estimators.candidates(minutes: minutes)
+        let baseline = bt.run(LinearPace(lookback: minutes <= 1440 ? 3600 : 6 * 3600))
+        let scores = estimators.map { bt.run($0) }.sorted { Backtest.objective($0, baseline: baseline) < Backtest.objective($1, baseline: baseline) }
+        print(Backtest.table([baseline] + (sweep ? Array(scores.prefix(12)) : scores), config: config))
+        for s in [baseline] + scores.prefix(sweep ? 3 : 2) {
+            let curve = s.byHistory.keys.sorted().map { k in
+                let v = s.byHistory[k]!
+                return "\(k == 0 ? "<2" : k == 8 ? "8+" : "\(k)-\(k * 2)")w: \(String(format: "%.2f", v.err / Double(v.n))) (n=\(v.n))"
+            }
+            print("  error at longest horizon by weeks of history · \(s.name): " + curve.joined(separator: ", "))
+        }
+    }
+    exit(0)
+}
+
 if arguments.contains("--install-collector") || arguments.contains("--remove-collector") {
     // Same as Install / Remove in Settings → Data sources.
     let paths = AppPaths.standard
     let (settings, managed) = (paths.claudeSettings, paths.claudeManagedScript)
     do {
-        if arguments.contains("--install-collector") {
+        if let i = arguments.firstIndex(of: "--export-history"), i + 1 < arguments.count {
+    // Reads every log once and writes all limit windows (unpruned), for --backtest.
+    let out = URL(fileURLWithPath: arguments[i + 1])
+    Task.detached {
+        let engine = Engine(downloadsPrices: false)
+        await engine.start(watch: false)
+        let history = await engine.currentHistory()
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        try! encoder.encode(history).write(to: out)
+        print("\(history.windows.count) windows → \(out.path)")
+        exit(0)
+    }
+    dispatchMain()
+}
+
+if let i = arguments.firstIndex(of: "--backtest"), i + 1 < arguments.count {
+    // Replays past Codex windows against each estimator: --backtest <history.json from --export-history>
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .secondsSince1970
+    let history = try decoder.decode(UsageHistory.self, from: Data(contentsOf: URL(fileURLWithPath: arguments[i + 1])))
+    let sweep = arguments.contains("--sweep")
+    if arguments.contains("--spikes") {
+        // Forecast warnings plus "if you keep this pace" spike alerts, for 5-hour windows.
+        let bt = Backtest(history: history, tool: .codex, minutes: 300, config: .fiveHour)
+        let chosen = Estimators.chosen(minutes: 300)
+        let scores = [bt.run(LinearPace(lookback: 3600)), bt.run(chosen)] + [0.25, 0.5, 1].map { bt.run(chosen, spikeLookback: $0 * 3600) }
+        print(Backtest.table(scores, config: .fiveHour))
+        exit(0)
+    }
+    if arguments.contains("--learning") {
+        // How much better predictions get with more past history to learn from.
+        for (minutes, base) in [(10080, Backtest.Config.weekly), (300, Backtest.Config.fiveHour)] {
+            print("\n== Learning curve, Codex \(minutes == 10080 ? "weekly" : "5-hour"): active-use error at each horizon, by weeks of history")
+            let est = Estimators.chosen(minutes: minutes)
+            for weeks in [0, 1, 2, 4, 8, 52] {
+                var config = base
+                config.historyLimit = Double(weeks) * 7 * 86400
+                let bt = Backtest(history: history, tool: .codex, minutes: minutes, config: config)
+                let s = bt.run(est)
+                print(String(format: "  %2d weeks: ", weeks) + s.horizons.map { String(format: "%6.2f", $0.activeMAE) }.joined() + String(format: "   F1 %.2f", s.f1))
+            }
+        }
+        exit(0)
+    }
+    for (minutes, config) in [(10080, Backtest.Config.weekly), (300, Backtest.Config.fiveHour)] {
+        let bt = Backtest(history: history, tool: .codex, minutes: minutes, config: config)
+        let hits = bt.windows.filter { $0.window.peak >= config.ranOutAt }.count
+        print("\n== Codex \(minutes == 10080 ? "weekly" : "5-hour") windows: \(bt.windows.count) (\(hits) ran out)")
+        let estimators = sweep ? Estimators.sweep(minutes: minutes) : Estimators.candidates(minutes: minutes)
+        let baseline = bt.run(LinearPace(lookback: minutes <= 1440 ? 3600 : 6 * 3600))
+        let scores = estimators.map { bt.run($0) }.sorted { Backtest.objective($0, baseline: baseline) < Backtest.objective($1, baseline: baseline) }
+        print(Backtest.table([baseline] + (sweep ? Array(scores.prefix(12)) : scores), config: config))
+        for s in [baseline] + scores.prefix(sweep ? 3 : 2) {
+            let curve = s.byHistory.keys.sorted().map { k in
+                let v = s.byHistory[k]!
+                return "\(k == 0 ? "<2" : k == 8 ? "8+" : "\(k)-\(k * 2)")w: \(String(format: "%.2f", v.err / Double(v.n))) (n=\(v.n))"
+            }
+            print("  error at longest horizon by weeks of history · \(s.name): " + curve.joined(separator: ", "))
+        }
+    }
+    exit(0)
+}
+
+if arguments.contains("--install-collector") {
             if let change = ClaudeCollector.plannedChange(settings: settings, managedScript: managed) {
                 print("statusLine in \(settings.path)\n  now:   \(change.before ?? "not set")\n  after: \(change.after)")
             }

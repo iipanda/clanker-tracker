@@ -20,26 +20,20 @@ private func window(_ minutes: Int, elapsedHours: Double, _ readings: [(Double, 
         #expect(abs(f.used - 72) < 0.001)
         #expect(abs(f.pace - 40) < 0.001)
         #expect(abs(f.sustainable - 17.5) < 0.001)
-        #expect(abs(f.runoutHours - 0.7) < 0.001)
         #expect(f.runsOut)
+        #expect(f.runoutHours > 0.3 && f.runoutHours < 1.6)
         #expect(!f.isStale)
     }
 
-    @Test func claudeWeeklyOnTrack() throws {
-        let f = try #require(history.currentForecasts(for: .claude, now: now).first { $0.window.minutes == 10080 })
-        #expect(abs(f.used - 41) < 0.001)
-        #expect(abs(f.pace - 0.6615) < 0.001)
-        #expect(abs(f.projected - 85.46) < 0.05)
-        #expect(!f.runsOut)
-    }
-
-    @Test func codexWeeklyOnTrack() throws {
-        let fs = history.currentForecasts(for: .codex, now: now)
-        #expect(fs.count == 1)
-        let f = try #require(fs.first)
-        #expect(abs(f.pace - 0.25) < 0.001)
-        #expect(abs(f.projected - 80.5) < 0.001)
-        #expect(!f.runsOut)
+    @Test func claudeWeeklyAndCodexWeekly() throws {
+        let claude = try #require(history.currentForecasts(for: .claude, now: now).first { $0.window.minutes == 10080 })
+        #expect(abs(claude.used - 41) < 0.001)
+        #expect(abs(claude.pace - 0.6615) < 0.001)
+        let codex = try #require(history.currentForecasts(for: .codex, now: now).first)
+        #expect(abs(codex.pace - 0.25) < 0.001)
+        #expect(abs(codex.used - 35.5) < 0.001)
+        #expect(!codex.runsOut)
+        #expect(codex.projected > codex.used && codex.projected < 100)
     }
 
     @Test func tightestIsClaudeFiveHour() throws {
@@ -53,6 +47,14 @@ private func window(_ minutes: Int, elapsedHours: Double, _ readings: [(Double, 
         #expect(bars.last?.isCurrent == true)
         #expect(bars.dropLast().allSatisfy { !$0.isCurrent })
     }
+
+    @Test func projectionFollowsTheChosenEstimator() throws {
+        let f = try #require(history.currentForecasts(for: .codex, now: now).first)
+        let points = f.projectionPoints()
+        #expect(points.first?.pct == f.used)
+        #expect(zip(points, points.dropFirst()).allSatisfy { $0.pct <= $1.pct })
+        #expect(abs((points.last?.pct ?? 0) - f.projected) < 0.001)
+    }
 }
 
 @Suite struct ForecastEdgeTests {
@@ -62,11 +64,23 @@ private func window(_ minutes: Int, elapsedHours: Double, _ readings: [(Double, 
     }
 
     @Test func noReadingsInLookbackMeansNoPace() {
-        let f = Forecast(window(10080, elapsedHours: 30, [(10, 20)]), heartbeat: now, now: now)
+        let f = Forecast(window(10080, elapsedHours: 30, [(10, 20)]), heartbeat: now, now: now, estimator: LinearPace(lookback: 6 * 3600))
         #expect(f.pace == 0)
         #expect(!f.runsOut)
         #expect(f.projected == 20)
         #expect(f.runoutHours == .infinity)
+    }
+
+    @Test func aShortBurstFades() {
+        // A quiet past week, then 25 points in the last hour: linear pace over the hour says it runs out
+        // within a day; the chosen estimator expects the burst to calm down to the usual pace.
+        let past = window(10080, elapsedHours: 7 * 24 + 30, (1...167).map { (Double($0), Double($0) * 0.3) })
+        let w = window(10080, elapsedHours: 30, [(10, 5), (29, 5), (30, 30)])
+        let series = [WindowSeries(past, end: past.resetsAt)]
+        let linear = Forecast(w, heartbeat: now, now: now, past: series, estimator: LinearPace(lookback: 3600))
+        let chosen = Forecast(w, heartbeat: now, now: now, past: series)
+        #expect(linear.runsOut && linear.runoutHours < 3)
+        #expect(chosen.runoutHours > 24)
     }
 
     @Test func afterResetShowsZero() {

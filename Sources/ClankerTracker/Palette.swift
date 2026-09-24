@@ -36,7 +36,7 @@ enum LimitState {
 
     init(_ f: Forecast?) {
         guard let f else { self = .calm; return }
-        self = f.isHit ? .hit : f.runsOut ? .warn : .calm
+        self = f.isHit ? .hit : f.alertRunout != nil ? .warn : .calm
     }
 
     var color: Color? {

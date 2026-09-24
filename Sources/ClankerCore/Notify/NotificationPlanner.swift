@@ -5,11 +5,14 @@ public struct NotificationPrefs: Sendable, Equatable {
     /// Percent to notify at, or nil when off.
     public var threshold: Double?
     public var reset: Bool
+    /// "Runs out if you keep this pace" for spikes on 5-hour limits.
+    public var spikes: Bool
 
-    public init(runout: Bool, threshold: Double?, reset: Bool) {
+    public init(runout: Bool, threshold: Double?, reset: Bool, spikes: Bool = true) {
         self.runout = runout
         self.threshold = threshold
         self.reset = reset
+        self.spikes = spikes
     }
 }
 
@@ -20,7 +23,8 @@ public struct PlannedNotification: Sendable, Equatable {
 }
 
 /// Decides which notifications to send. Each condition fires at most once per window, tracked in a
-/// ledger of keys mapped to the window's end so old entries can be pruned.
+/// ledger of keys mapped to the window's end so old entries can be pruned. Spike alerts are the
+/// exception: they re-arm when the spike calms down.
 public enum NotificationPlanner {
     /// Readings older than this are not acted on (the numbers may already be out of date).
     public static let freshness: TimeInterval = 10 * 60
@@ -49,7 +53,17 @@ public enum NotificationPlanner {
                 }
                 continue
             }
+            // A spike alert re-arms once the spike calms down (going quiet counts), so a later spike can
+            // alert again.
+            let spikeID = "\(f.window.id).spike"
+            if ledger[spikeID] != nil, f.spikeCalm { ledger[spikeID] = nil }
             guard fresh else { continue }
+
+            if prefs.spikes, let runout = f.spikeRunoutDate, let pace = f.spikePace {
+                fire("spike", f,
+                     "\(name) \(kind) limit runs out at \(Fmt.clock(runout)) if you keep this pace",
+                     "You're at \(Fmt.pct(f.used)), using about \(Fmt.pct(pace)) an hour over the last 30 minutes. It resets at \(Fmt.when(f.end, short: short)).")
+            }
 
             if prefs.runout, let runout = f.runoutDate {
                 fire("runout", f,

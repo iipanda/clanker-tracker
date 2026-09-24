@@ -39,8 +39,10 @@ and starts it. Add `--no-open-at-login` to leave your login items as they are.
 - **Spend**: the API-equivalent cost of your usage per day, week or month, per tool and per model,
   with the current period compared to the same point in the previous one. The dropdown shows today
   and this week, and each limit window shows what it has cost so far.
-- **Notifications**: once per window when your pace would run out before the reset, when usage
-  passes a threshold (80% by default), and, if you turn it on, when a limit resets.
+- **Notifications**: once per window when the forecast runs out before the reset, when usage
+  passes a threshold (80% by default), and, if you turn it on, when a limit resets. On 5-hour
+  limits, a spike gets its own alert ("runs out at 15:40 if you keep this pace"), which re-arms
+  once the spike calms down so a later spike can alert again.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png">
@@ -56,16 +58,49 @@ and starts it. Add `--no-open-at-login` to leave your login items as they are.
 
 ## How the forecast works
 
-For the current window of each limit:
+The forecast learns how you use each tool and projects the rest of the window from that:
 
-- **Pace**: how much the usage grew over the last hour (5-hour limits) or last 6 hours (weekly
-  limits), in % per hour.
-- **Runs out**: `remaining % ÷ pace`, added to now. When that lands before the reset, the limit
-  shows amber.
-- **Sustainable**: `remaining % ÷ hours until reset`, the pace that lands exactly on 100% at the reset.
+- **Your usual hours**: from your past windows of the same kind (the last two weeks count most),
+  how much you typically use in each hour of the day. It gets better as history builds up, mostly
+  within the first week or two.
+- **This window's intensity**: when the current window runs busier than your usual (judged mostly
+  on the last day), the forecast assumes it stays that way, up to twice your usual rate.
+- **Bursts fade**: a sudden spike, like an hour of heavy sub-agent work, carries on briefly and
+  then settles into your usual pattern within about two hours (one hour for 5-hour limits). The
+  last few hours are kept out of the learned pattern, so a burst counts as a one-off rather than a habit.
+- **5-hour limits** blend this with your recent pace, which catches run-outs earlier.
+- **Spikes on 5-hour limits**: when the last 30 minutes' pace would run the limit out but the
+  forecast expects the spike to settle, the card and dropdown show "Runs out ~15:40 at this pace"
+  and you get a one-off alert. It re-arms when your pace drops back well under what the limit can
+  sustain.
 
-The projection assumes your recent pace continues around the clock, so right after a busy stretch
-it leans cautious, and it eases as quieter hours fill the lookback.
+The card's **Pace** is what you actually used over the last hour (5-hour limits) or 6 hours
+(weekly), and **Sustainable** is the pace that lands exactly on 100% at the reset.
+
+### Checked against your own history
+
+`--backtest` replays past Codex windows: at every hour it gives each candidate estimator just what
+was known at that moment and compares the prediction with what happened next. Across 64 weekly and
+315 five-hour windows, the forecast above compared with the previous one (a straight line at the
+last 6 hours' pace) came out like this:
+
+| | Weekly | 5-hour |
+| --- | --- | --- |
+| Error in active hours, 12 h / 1 h ahead | 10.1 → 7.9 points | 5.0 → 4.7 points |
+| Error in active hours, 24 h / 2 h ahead | 14.7 → 11.6 points | 8.5 → 7.2 points |
+| Run-outs caught ahead of time | 32% → 60% | 70% → 62% (71% with spike alerts) |
+| Warnings that came true | 55% → 59% | 43% → 49% (42% with spike alerts) |
+| Typical error in the run-out time | 12.8 h → 8.7 h | 0.3 h → 0.4 h |
+
+Run it on your own data with:
+
+```sh
+ClankerTracker --export-history /tmp/history.json    # read all logs once
+ClankerTracker --backtest /tmp/history.json           # compare estimators
+ClankerTracker --backtest /tmp/history.json --sweep   # tune parameters
+ClankerTracker --backtest /tmp/history.json --learning  # accuracy vs weeks of history
+ClankerTracker --backtest /tmp/history.json --spikes    # 5-hour warnings with spike alerts
+```
 
 ## How the API-equivalent cost works
 
@@ -158,6 +193,7 @@ The binary takes a few flags that help while developing:
 | --- | --- |
 | `--setup [--no-open-at-login]` | Confirms Codex tracking, sets up the Claude Code collector, adds the login item, starts the app |
 | `--dump` | Reads everything once and prints the current limits as JSON |
+| `--export-history <file>` / `--backtest <file>` | Saves every limit window, then replays them to score forecast estimators (see above) |
 | `--demo` | Runs with the sample data from `design/index.html` |
 | `--snapshot <dir>` | Renders the dropdown and window panes to PNGs (combine with `--demo`) |
 | `--install-collector` / `--remove-collector` | Sets up or removes the Claude Code collector (prints the settings.json change) |
@@ -185,8 +221,8 @@ with the hardened runtime, notarizes, and staples the app, so it opens straight 
 ### Layout
 
 ```
-Sources/ClankerCore/      model, forecast math, log parsers, file tailing + FSEvents, status line hook,
-                          notification rules. Pure logic, covered by Tests/ClankerCoreTests.
+Sources/ClankerCore/      model, forecast estimators + backtest, log parsers, file tailing + FSEvents,
+                          status line hook, notification rules. Pure logic, covered by Tests/ClankerCoreTests.
 Sources/ClankerTracker/   the app: status item, popover, main window, settings (AppKit + SwiftUI)
 design/index.html         the design board the UI follows
 scripts/build-app.sh      bundle, sign, install

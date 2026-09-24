@@ -75,7 +75,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         button.attributedTitle = title
 
-        let label = t.map { "\($0.tool.displayName) \($0.window.sentenceLabel) limit \(Fmt.pct($0.used)) used" + ($0.runsOut ? ", runs out soon" : "") }
+        let label = t.map { "\($0.tool.displayName) \($0.window.sentenceLabel) limit \(Fmt.pct($0.used)) used" + ($0.alertRunout != nil ? ", runs out soon" : "") }
         button.setAccessibilityLabel("Clanker Tracker" + (label.map { ": \($0)" } ?? ""))
     }
 

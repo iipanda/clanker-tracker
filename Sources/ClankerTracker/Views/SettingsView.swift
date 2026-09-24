@@ -24,6 +24,10 @@ struct SettingsView: View {
                     Text("When a limit will run out before it resets")
                     Text("Once per window, based on your current pace")
                 }
+                Toggle(isOn: $settings.notifySpikes) {
+                    Text("When a spike would run out a 5-hour limit")
+                    Text("\"Runs out at 15:40 if you keep this pace\"; alerts again after the spike calms down")
+                }
                 HStack {
                     Toggle("When usage passes", isOn: $settings.notifyThreshold)
                     Spacer()
