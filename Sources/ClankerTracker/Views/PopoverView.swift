@@ -14,7 +14,7 @@ struct PopoverView: View {
             }
             Divider().padding(.horizontal, 10)
             SpendLine(model: model) { open(.spend) }
-            Divider().padding(.horizontal, 4).padding(.vertical, 6)
+            Divider().padding(.horizontal, 4).padding(.bottom, 6)
             Text(model.updatedText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
