@@ -80,23 +80,25 @@ final class AppSettings {
     var notifyThreshold: Bool { didSet { defaults.set(notifyThreshold, forKey: "notifyThreshold") } }
     var threshold: Int { didSet { defaults.set(threshold, forKey: "threshold") } }
     var notifyReset: Bool { didSet { defaults.set(notifyReset, forKey: "notifyReset") } }
+    var notifySpikes: Bool { didSet { defaults.set(notifySpikes, forKey: "notifySpikes") } }
     var refreshSeconds: Int { didSet { defaults.set(refreshSeconds, forKey: "refreshSeconds") } }
 
     init() {
         defaults.register(defaults: [
             "menuBarMode": MenuBarMode.tightest.rawValue, "notifyRunout": true, "notifyThreshold": true,
-            "threshold": 80, "notifyReset": false, "refreshSeconds": 60,
+            "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60,
         ])
         menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .tightest
         notifyRunout = defaults.bool(forKey: "notifyRunout")
         notifyThreshold = defaults.bool(forKey: "notifyThreshold")
         threshold = defaults.integer(forKey: "threshold")
         notifyReset = defaults.bool(forKey: "notifyReset")
+        notifySpikes = defaults.bool(forKey: "notifySpikes")
         refreshSeconds = max(15, defaults.integer(forKey: "refreshSeconds"))
     }
 
     var notificationPrefs: NotificationPrefs {
-        NotificationPrefs(runout: notifyRunout, threshold: notifyThreshold ? Double(threshold) : nil, reset: notifyReset)
+        NotificationPrefs(runout: notifyRunout, threshold: notifyThreshold ? Double(threshold) : nil, reset: notifyReset, spikes: notifySpikes)
     }
 }
 

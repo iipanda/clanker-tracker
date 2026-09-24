@@ -31,6 +31,7 @@ enum StatusText {
         if f.isReset { return Line(text: "Reset at \(Fmt.when(f.end, short: f.window.isShort))", color: nil) }
         if f.isHit { return Line(text: "Limit reached · back in \(Fmt.duration(hours: f.leftHours))", color: Palette.crit) }
         if let runout = f.runoutDate { return Line(text: "Runs out ~\(Fmt.clock(runout))", color: Palette.warn) }
+        if let runout = f.spikeRunoutDate { return Line(text: "Runs out ~\(Fmt.clock(runout)) at this pace", color: Palette.warn) }
         return Line(text: "On track · ~\(Fmt.pct(f.projected)) at reset", color: nil)
     }
 
