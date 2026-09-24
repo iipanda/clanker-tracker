@@ -123,6 +123,42 @@ private func window(_ minutes: Int, elapsedHours: Double, _ readings: [(Double, 
     }
 }
 
+@Suite struct MomentFormatTests {
+    let cal = Calendar.current
+    var now: Date { cal.date(from: DateComponents(year: 2026, month: 9, day: 24, hour: 12, minute: 5))! }
+
+    func at(day: Int, hour: Int, minute: Int = 0) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 9, day: day, hour: hour, minute: minute))!
+    }
+
+    @Test func laterTodayIsJustTheTime() {
+        #expect(Fmt.moment(at(day: 24, hour: 23, minute: 50), now: now) == Fmt.clock(at(day: 24, hour: 23, minute: 50)))
+    }
+
+    /// 13:58 tomorrow while it's 12:05 today would otherwise read as two hours from now.
+    @Test func anotherDayCarriesTheWeekday() {
+        let tomorrow = at(day: 25, hour: 13, minute: 58)
+        #expect(Fmt.moment(tomorrow, now: now) == Fmt.dayClock(tomorrow))
+        #expect(Fmt.moment(tomorrow, now: now) != Fmt.clock(tomorrow))
+        let yesterday = at(day: 23, hour: 9)
+        #expect(Fmt.moment(yesterday, now: now) == Fmt.dayClock(yesterday))
+    }
+
+    @Test func justPastMidnightIsTomorrow() {
+        let late = cal.date(from: DateComponents(year: 2026, month: 9, day: 24, hour: 23, minute: 30))!
+        let after = at(day: 25, hour: 0, minute: 10)
+        #expect(Fmt.moment(after, now: late) == Fmt.dayClock(after))
+    }
+
+    @Test func sameWeekdayNextWeekGetsTheDate() {
+        let nextWeek = at(day: 30, hour: 9, minute: 52)
+        #expect(Fmt.moment(nextWeek, now: now) == Fmt.dayClock(nextWeek))
+        // Thursday again, a week out: "Thu 09:00" would read as today.
+        let oct1 = cal.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 9))!
+        #expect(Fmt.moment(oct1, now: now) == Fmt.dateClock(oct1))
+    }
+}
+
 @Suite struct HistoryTests {
     func sample(_ minutes: Int, reset: TimeInterval, at t: TimeInterval, _ pct: Double, tool: Tool = .codex) -> Sample {
         Sample(tool: tool, minutes: minutes, resetsAt: Date(timeIntervalSince1970: reset), reading: Reading(t: Date(timeIntervalSince1970: t), pct: pct))

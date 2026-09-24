@@ -28,23 +28,23 @@ enum StatusText {
     }
 
     static func line(_ f: Forecast) -> Line {
-        if f.isReset { return Line(text: "Reset at \(Fmt.when(f.end, short: f.window.isShort))", color: nil) }
+        if f.isReset { return Line(text: "Reset at \(Fmt.moment(f.end, now: f.now))", color: nil) }
         if f.isHit { return Line(text: "Limit reached · back in \(Fmt.duration(hours: f.leftHours))", color: Palette.crit) }
-        if let runout = f.runoutDate { return Line(text: "Runs out ~\(Fmt.clock(runout))", color: Palette.warn) }
-        if let runout = f.spikeRunoutDate { return Line(text: "Runs out ~\(Fmt.clock(runout)) at this pace", color: Palette.warn) }
+        if let runout = f.runoutDate { return Line(text: "Runs out ~\(Fmt.moment(runout, now: f.now))", color: Palette.warn) }
+        if let runout = f.spikeRunoutDate { return Line(text: "Runs out ~\(Fmt.moment(runout, now: f.now)) at this pace", color: Palette.warn) }
         return Line(text: "On track · ~\(Fmt.pct(f.projected)) at reset", color: nil)
     }
 
     static func resets(_ f: Forecast) -> String {
         if f.isReset { return "Waiting for next use" }
-        return "Resets " + (f.leftHours < 24 ? Fmt.clock(f.end) : Fmt.dayClock(f.end))
+        return "Resets " + Fmt.moment(f.end, now: f.now)
     }
 
     /// "Estimated from Fable usage since the Tue 04:15 reading"
     static func estimateNote(_ f: Forecast) -> String? {
         guard f.isEstimated, let scope = f.window.scopeName else { return nil }
         guard let r = f.lastReported else { return "Estimated from \(scope) usage this window" }
-        return "Estimated from \(scope) usage since the \(Fmt.when(r.t, short: f.now.timeIntervalSince(r.t) < 12 * 3600)) reading"
+        return "Estimated from \(scope) usage since the \(Fmt.moment(r.t, now: f.now)) reading"
     }
 
     static func staleness(_ f: Forecast) -> String? {

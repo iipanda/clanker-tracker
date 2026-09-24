@@ -97,14 +97,13 @@ struct ToolCard: View {
     }
 
     private func headlineStatus(_ f: Forecast) -> (title: String, detail: String, color: Color) {
-        let short = f.window.isShort
-        if f.isReset { return ("Reset", "At \(Fmt.when(f.end, short: short))", .secondary) }
-        if f.isHit { return ("Limit reached", "Back at \(Fmt.when(f.end, short: short))", Palette.crit) }
+        if f.isReset { return ("Reset", "At \(Fmt.moment(f.end, now: f.now))", .secondary) }
+        if f.isHit { return ("Limit reached", "Back at \(Fmt.moment(f.end, now: f.now))", Palette.crit) }
         if let runout = f.runoutDate {
-            return ("Runs out in \(Fmt.duration(hours: f.runoutHours))", "Around \(Fmt.clock(runout)), before the \(Fmt.when(f.end, short: short)) reset", Palette.warn)
+            return ("Runs out in \(Fmt.duration(hours: f.runoutHours))", "Around \(Fmt.moment(runout, now: f.now)), before the \(Fmt.moment(f.end, now: f.now)) reset", Palette.warn)
         }
         if let spike = f.spikeRunoutDate {
-            return ("Runs out ~\(Fmt.clock(spike)) at this pace", "If this spike settles: about \(Fmt.pct(f.projected)) at reset", Palette.warn)
+            return ("Runs out ~\(Fmt.moment(spike, now: f.now)) at this pace", "If this spike settles: about \(Fmt.pct(f.projected)) at reset", Palette.warn)
         }
         if let note = StatusText.estimateNote(f) {
             return ("On track", note, Palette.ok)
@@ -119,7 +118,7 @@ struct ToolCard: View {
             HStack(alignment: .top) {
                 stat("Pace, last \(Int(f.lookbackHours))h", Fmt.rate(f.pace), unit: "%/h")
                 stat("Sustainable", Fmt.rate(f.sustainable), unit: "%/h")
-                stat("Resets", f.isReset ? "–" : f.leftHours < 24 ? Fmt.clock(f.end) : Fmt.dayClock(f.end),
+                stat("Resets", f.isReset ? "–" : Fmt.moment(f.end, now: f.now),
                      detail: f.isReset ? nil : "in \(Fmt.duration(hours: f.leftHours))")
             }
         }
@@ -148,7 +147,7 @@ struct ToolCard: View {
         let short = f.window.isShort
         let lead = f.used - f.even
         let rows: [(String, String)] = [
-            ("Window started", short ? Fmt.clock(f.start) : Fmt.dateClock(f.start)),
+            ("Window started", short ? Fmt.moment(f.start, now: f.now) : Fmt.dateClock(f.start)),
             ("Resets", short ? Fmt.dayClock(f.end) : Fmt.dateClock(f.end)),
             ("Remaining", Fmt.pct(max(0, 100 - f.used), digits: 1)),
             ("Hits 100%", f.runoutDate.map(short ? Fmt.dayClock : Fmt.dateClock) ?? (f.isHit ? "Reached" : "Not before reset")),

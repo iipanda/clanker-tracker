@@ -22,8 +22,13 @@ public enum Fmt {
         d.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
     }
 
-    /// Clock time for short windows, weekday and time for long ones.
-    public static func when(_ d: Date, short: Bool) -> String { short ? clock(d) : dayClock(d) }
+    /// "13:58" when `d` falls on the same day as `now`, "Thu 13:58" within the surrounding week, so a
+    /// bare time always means today. The full date once the weekday alone would repeat today's.
+    public static func moment(_ d: Date, now: Date, calendar: Calendar = .current) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: d)).day ?? 0
+        if days == 0 { return clock(d) }
+        return abs(days) < 7 ? dayClock(d) : dateClock(d)
+    }
 
     /// "Mon"
     public static func weekday(_ d: Date) -> String { d.formatted(.dateTime.weekday(.abbreviated)) }

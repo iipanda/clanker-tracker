@@ -181,7 +181,7 @@ func tempDir() throws -> URL {
         let t0 = start.addingTimeInterval(2 * 3600)
 
         let first = NotificationPlanner.plan([forecast(window, at: t0)], prefs: prefs, ledger: &ledger, now: t0, deliver: true)
-        #expect(first.map(\.title) == ["Claude Code 5-hour limit runs out at \(Fmt.clock(t0.addingTimeInterval(55.0 / 60 * 3600))) if you keep this pace"])
+        #expect(first.map(\.title) == ["Claude Code 5-hour limit runs out at \(Fmt.moment(t0.addingTimeInterval(55.0 / 60 * 3600), now: t0)) if you keep this pace"])
 
         // Still spiking a few minutes later: no repeat.
         let t1 = t0.addingTimeInterval(300)

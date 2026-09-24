@@ -51,7 +51,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func sendTest() {
-        send(id: "test-\(UUID().uuidString)", title: "Claude Code 5-hour limit runs out around \(Fmt.clock(Date().addingTimeInterval(42 * 60)))",
+        send(id: "test-\(UUID().uuidString)", title: "Claude Code 5-hour limit runs out around \(Fmt.moment(Date().addingTimeInterval(42 * 60), now: Date()))",
              body: "This is a test. Real alerts look like this, once per window.")
     }
 

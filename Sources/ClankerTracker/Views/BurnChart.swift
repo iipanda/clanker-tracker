@@ -50,7 +50,7 @@ struct BurnChart: View {
                     .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                         HStack(spacing: 4) {
                             Text("\(Fmt.pct(v, digits: 1)) \(selected <= f.now ? "used" : "projected")")
-                            Text("· \(Fmt.when(selected, short: f.window.isShort))").foregroundStyle(.secondary)
+                            Text("· \(Fmt.moment(selected, now: f.now))").foregroundStyle(.secondary)
                         }
                         .font(.caption)
                         .padding(.horizontal, 7)
@@ -105,7 +105,7 @@ struct BurnChart: View {
     }
 
     private var accessibilityText: String {
-        "\(Fmt.pct(f.used)) used" + (f.runoutDate.map { ", projected to run out at \(Fmt.clock($0))" } ?? ", about \(Fmt.pct(f.projected)) at reset")
+        "\(Fmt.pct(f.used)) used" + (f.runoutDate.map { ", projected to run out at \(Fmt.moment($0, now: f.now))" } ?? ", about \(Fmt.pct(f.projected)) at reset")
     }
 }
 

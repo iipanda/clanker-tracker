@@ -44,7 +44,7 @@ public enum NotificationPlanner {
         }
 
         for f in forecasts {
-            let name = f.tool.displayName, kind = f.window.sentenceLabel, short = f.window.isShort
+            let name = f.tool.displayName, kind = f.window.sentenceLabel
             let fresh = now.timeIntervalSince(f.lastUpdate) <= freshness
 
             if f.isReset {
@@ -61,18 +61,18 @@ public enum NotificationPlanner {
 
             if prefs.spikes, let runout = f.spikeRunoutDate, let pace = f.spikePace {
                 fire("spike", f,
-                     "\(name) \(kind) limit runs out at \(Fmt.clock(runout)) if you keep this pace",
-                     "You're at \(Fmt.pct(f.used)), using about \(Fmt.pct(pace)) an hour over the last 30 minutes. It resets at \(Fmt.when(f.end, short: short)).")
+                     "\(name) \(kind) limit runs out at \(Fmt.moment(runout, now: now)) if you keep this pace",
+                     "You're at \(Fmt.pct(f.used)), using about \(Fmt.pct(pace)) an hour over the last 30 minutes. It resets at \(Fmt.moment(f.end, now: now)).")
             }
 
             if prefs.runout, let runout = f.runoutDate {
                 fire("runout", f,
-                     "\(name) \(kind) limit runs out around \(Fmt.clock(runout))",
-                     "You're at \(Fmt.pct(f.used)) and using about \(Fmt.pct(f.pace)) an hour. It resets at \(Fmt.when(f.end, short: short)).")
+                     "\(name) \(kind) limit runs out around \(Fmt.moment(runout, now: now))",
+                     "You're at \(Fmt.pct(f.used)) and using about \(Fmt.pct(f.pace)) an hour. It resets at \(Fmt.moment(f.end, now: now)).")
             }
             if let t = prefs.threshold, f.used >= t {
-                let tail = f.isHit ? "It resets at \(Fmt.when(f.end, short: short))." :
-                    "At this pace you'll be near \(Fmt.pct(f.projected)) when it resets at \(Fmt.when(f.end, short: short))."
+                let tail = f.isHit ? "It resets at \(Fmt.moment(f.end, now: now))." :
+                    "At this pace you'll be near \(Fmt.pct(f.projected)) when it resets at \(Fmt.moment(f.end, now: now))."
                 fire("threshold\(Int(t))", f, "\(name) \(kind) limit is at \(Fmt.pct(f.used))", tail)
             }
         }
