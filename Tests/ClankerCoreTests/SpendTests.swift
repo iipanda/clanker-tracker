@@ -344,3 +344,56 @@ import Testing
         #expect(saved.windows.contains { $0.peak == 42 })
     }
 }
+
+@Suite struct WeeklyPeriodsTests {
+    let day: TimeInterval = 86400
+    let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+
+    /// A weekly window that resets `resetDay` days after t0, read on `readDays`.
+    func window(_ tool: Tool, resetDay: Double, readDays: [Double], scope: String? = nil) -> [Sample] {
+        readDays.map { Sample(tool: tool, minutes: 7 * 24 * 60, resetsAt: t0.addingTimeInterval(resetDay * day),
+                              reading: Reading(t: t0.addingTimeInterval($0 * day), pct: 10), scope: scope) }
+    }
+
+    @Test func followsResetsAndEndsEarlyResetWindowsAtTheNextOne() throws {
+        var h = UsageHistory()
+        h.add(contentsOf: window(.codex, resetDay: 7, readDays: [0.5, 2]))       // days 0–7, reset early on day 3
+        h.add(contentsOf: window(.codex, resetDay: 10, readDays: [3.5, 5, 9]))   // days 3–10
+        h.add(contentsOf: window(.codex, resetDay: 17, readDays: [11]))          // days 10–17
+        h.add(contentsOf: window(.codex, resetDay: 17, readDays: [12], scope: "spark"))
+        let now = t0.addingTimeInterval(12 * day)
+        let p = try #require(WeeklyPeriods.recent(h, tool: .codex, now: now, count: 5))
+        let days = p.map { ($0.start.timeIntervalSince(t0) / day, $0.end.timeIntervalSince(t0) / day) }
+        #expect(days.map(\.0) == [-14, -7, 0, 3, 10])
+        #expect(days.map(\.1) == [-7, 0, 3, 10, 17])
+        #expect(p.last!.contains(now))
+    }
+
+    @Test func fillsStretchesWithoutReadingsWithWeeks() throws {
+        var h = UsageHistory()
+        h.add(contentsOf: window(.claude, resetDay: 7, readDays: [1]))
+        h.add(contentsOf: window(.claude, resetDay: 30, readDays: [24]))  // days 23–30; nothing read 7–23
+        // Reset on day 30 with no reading since.
+        let now = t0.addingTimeInterval(33 * day)
+        let p = try #require(WeeklyPeriods.recent(h, tool: .claude, now: now, count: 10))
+        let starts = p.suffix(5).map { $0.start.timeIntervalSince(t0) / day }
+        #expect(starts == [7, 14, 21, 23, 30])
+        #expect(p.last!.end.timeIntervalSince(t0) / day == 37)
+        #expect(zip(p, p.dropFirst()).allSatisfy { $0.end == $1.start })
+    }
+
+    @Test func shortGapsBetweenWindowsJoinTheNextOne() throws {
+        var h = UsageHistory()
+        h.add(contentsOf: window(.codex, resetDay: 7, readDays: [1]))
+        h.add(contentsOf: window(.codex, resetDay: 14.5, readDays: [8]))  // starts half a day after the reset
+        let p = try #require(WeeklyPeriods.recent(h, tool: .codex, now: t0.addingTimeInterval(9 * day), count: 2))
+        #expect(p.map { $0.start.timeIntervalSince(t0) / day } == [0, 7])
+        #expect(p.last!.end.timeIntervalSince(t0) / day == 14.5)
+    }
+
+    @Test func nilWithoutWeeklyWindows() {
+        var h = UsageHistory()
+        h.add(Sample(tool: .claude, minutes: 300, resetsAt: t0, reading: Reading(t: t0.addingTimeInterval(-3600), pct: 5)))
+        #expect(WeeklyPeriods.recent(h, tool: .claude, now: t0, count: 4) == nil)
+    }
+}

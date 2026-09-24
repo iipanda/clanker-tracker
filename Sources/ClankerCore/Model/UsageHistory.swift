@@ -74,6 +74,28 @@ public struct UsageHistory: Codable, Sendable, Equatable {
         return takeover
     }
 
+    /// Windows of one kind that have ended by `now`, oldest end first, each with when it actually
+    /// ended (see `effectiveEnd(of:)`).
+    public func endedWindows(tool: Tool, minutes: Int, scope: String?, now: Date) -> [EndedWindow] {
+        let kind = windows.filter { $0.tool == tool && $0.minutes == minutes && $0.scope == scope }.sorted { $0.resetsAt < $1.resetsAt }
+        var out: [EndedWindow] = []
+        for (i, w) in kind.enumerated() {
+            // Same rule as `effectiveEnd(of:)`, looking only at the windows that can take over: a
+            // window starting (readings allow an hour early) after this one's reset can't end it early.
+            let last = w.points.last?.t ?? w.start
+            var end = w.resetsAt
+            var j = i + 1
+            while j < kind.count, kind[j].start.addingTimeInterval(-3600) < w.resetsAt {
+                if kind[j].resetsAt > w.resetsAt.addingTimeInterval(Self.resetTolerance), let first = kind[j].points.first?.t, first >= last {
+                    end = min(end, first)
+                }
+                j += 1
+            }
+            if end <= now { out.append(EndedWindow(window: w, end: end)) }
+        }
+        return out.sorted { $0.end < $1.end }
+    }
+
     /// A kind of limit: its length, and its scope for limits on part of the usage (e.g. Fable).
     public struct Kind: Hashable, Sendable, Comparable {
         public let minutes: Int
