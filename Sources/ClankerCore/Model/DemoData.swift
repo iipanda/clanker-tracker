@@ -15,7 +15,7 @@ public enum DemoData {
         Spec(tool: .claude, minutes: 10080, elapsedHours: 100.8,
              keys: [(0, 0), (3, 4), (9, 9), (14, 9), (27, 14), (33, 19), (38, 19), (51, 24), (57, 29), (62, 29), (75, 31), (81, 35), (86, 35), (99, 38), (100.8, 41)]),
         Spec(tool: .codex, minutes: 10080, elapsedHours: 60,
-             keys: [(0, 0), (4, 6), (10, 12), (14, 12), (26, 20), (33, 31), (38, 31), (50, 40), (53, 51), (54, 52), (60, 53.5)]),
+             keys: [(0, 0), (4, 4), (10, 8), (14, 8), (26, 13), (33, 20), (38, 20), (50, 26), (53, 33), (54, 34), (60, 35.5)]),
     ]
 
     static let pastPeaks: [Tool: [Double]] = [
@@ -61,10 +61,17 @@ public enum DemoData {
                              reading: Reading(t: start.addingTimeInterval(hours * 3600), pct: pct)))
             }
             if s.minutes == 10080, let peaks = pastPeaks[s.tool] {
+                // Past weeks: working hours on weekdays, growing to each week's peak.
+                let cal = Calendar.current
                 for (i, peak) in peaks.enumerated() {
                     let reset = resetsAt.addingTimeInterval(-Double(peaks.count - i) * 7 * 86400)
-                    h.add(Sample(tool: s.tool, minutes: 10080, resetsAt: reset,
-                                 reading: Reading(t: reset.addingTimeInterval(-86400), pct: peak)))
+                    let begin = reset.addingTimeInterval(-7 * 86400)
+                    let hours = (0..<(7 * 24)).map { begin.addingTimeInterval(Double($0) * 3600) }
+                    let active = hours.filter { (10...18).contains(cal.component(.hour, from: $0)) && !cal.isDateInWeekend($0) }
+                    for (k, t) in active.enumerated() where k % 2 == 1 || k == active.count - 1 {
+                        h.add(Sample(tool: s.tool, minutes: 10080, resetsAt: reset,
+                                     reading: Reading(t: t, pct: (peak * Double(k + 1) / Double(active.count)).rounded())))
+                    }
                 }
             }
         }

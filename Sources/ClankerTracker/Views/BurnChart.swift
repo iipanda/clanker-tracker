@@ -2,8 +2,8 @@ import Charts
 import ClankerCore
 import SwiftUI
 
-/// Usage over the window: recorded line, dashed projection at the current pace (ending where it would
-/// hit 100%), and a faint dotted even-pace line from 0% to 100%.
+/// Usage over the window: recorded line, dashed projection (following your usual hours, ending where
+/// it would hit 100%), and a faint dotted even-pace line from 0% to 100%.
 struct BurnChart: View {
     let f: Forecast
     @State private var selected: Date?
@@ -16,7 +16,8 @@ struct BurnChart: View {
 
     var body: some View {
         let usage = usagePoints
-        let projectionEnd: Point = f.runoutDate.map { Point(id: 1, t: min($0, f.end), v: 100) } ?? Point(id: 1, t: f.end, v: f.projected)
+        let projection = f.projectionPoints().enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
+        let projectionEnd = projection.last ?? Point(id: 0, t: f.now, v: f.used)
 
         Chart {
             ForEach([Point(id: 0, t: f.start, v: 0), Point(id: 1, t: f.end, v: 100)]) { p in
@@ -24,7 +25,7 @@ struct BurnChart: View {
                     .foregroundStyle(Color.secondary.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, lineCap: .round, dash: [1, 4]))
             }
-            ForEach([Point(id: 0, t: f.now, v: f.used), projectionEnd]) { p in
+            ForEach(projection) { p in
                 LineMark(x: .value("Time", p.t), y: .value("Used", p.v), series: .value("Series", "projection"))
                     .foregroundStyle(Palette.accent.opacity(0.7))
                     .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [4, 4]))
@@ -112,7 +113,7 @@ struct ChartLegend: View {
     var body: some View {
         HStack(spacing: 16) {
             item("Used") { Capsule().fill(Palette.accent).frame(width: 14, height: 2) }
-            item("At current pace") { Dashes(color: Palette.accent.opacity(0.7), dash: [4, 3]) }
+            item("Forecast") { Dashes(color: Palette.accent.opacity(0.7), dash: [4, 3]) }
             item("Even pace") { Dashes(color: .secondary, dash: [1, 3]) }
         }
         .font(.caption)

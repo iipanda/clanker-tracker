@@ -82,8 +82,18 @@ public struct UsageHistory: Codable, Sendable, Equatable {
         return kinds.compactMap { minutes in
             guard let w = ws.filter({ $0.minutes == minutes }).max(by: { ($0.lastSeen, $0.resetsAt) < ($1.lastSeen, $1.resetsAt) })
             else { return nil }
-            return Forecast(w, end: effectiveEnd(of: w), heartbeat: heartbeats[tool.rawValue], now: now)
+            return Forecast(w, end: effectiveEnd(of: w), heartbeat: heartbeats[tool.rawValue], now: now,
+                            past: pastSeries(tool: tool, minutes: minutes, before: now))
         }
+    }
+
+    /// Recent finished windows of one kind as usage series, for learning usual hours.
+    public func pastSeries(tool: Tool, minutes: Int, before now: Date, within: TimeInterval = 8 * 7 * 86400) -> [WindowSeries] {
+        windows(for: tool)
+            .filter { $0.minutes == minutes && $0.points.count >= 3 && $0.resetsAt > now.addingTimeInterval(-within - TimeInterval(minutes) * 60) }
+            .map { (w: $0, end: effectiveEnd(of: $0)) }
+            .filter { $0.end <= now }
+            .map { WindowSeries($0.w, end: $0.end) }
     }
 
     public func currentForecasts(now: Date) -> [Forecast] {

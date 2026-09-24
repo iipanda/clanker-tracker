@@ -214,3 +214,36 @@ import Testing
         #expect(await engine.currentSpend() == spend)
     }
 }
+
+@Suite struct EstimatorTests {
+    let start = Date(timeIntervalSince1970: 1_790_000_000)
+
+    @Test func seriesSpreadsJumpsAfterGaps() {
+        let w = LimitWindow(tool: .codex, minutes: 10080, resetsAt: start.addingTimeInterval(7 * 86400),
+                            points: [Reading(t: start.addingTimeInterval(3600 * 10), pct: 30)])
+        let series = WindowSeries(w, end: start.addingTimeInterval(24 * 3600))
+        #expect(series.increments.count == 24)
+        #expect(abs(series.increments.reduce(0, +) - 30) < 1e-9)
+        #expect(series.increments[7...9].allSatisfy { abs($0 - 10) < 1e-9 })
+    }
+
+    @Test func projectionRunoutAndCap() {
+        let p = Projection(now: start, used: 90, step: 3600, increments: [2, 4])
+        #expect(p.value(at: start.addingTimeInterval(3600)) == 92)
+        #expect(p.value(at: start.addingTimeInterval(3 * 3600)) == 100)
+        #expect(p.runout(before: start.addingTimeInterval(86400)) == start.addingTimeInterval(3600 + 2 * 3600))
+        #expect(p.runout(before: start.addingTimeInterval(3600)) == nil)
+    }
+
+    @Test func backtestScoresAPerfectEstimator() {
+        // A steady 1%/h window: linear pace over the last hour is exact.
+        var h = UsageHistory()
+        let reset = start.addingTimeInterval(7 * 86400)
+        for hour in 1...100 {
+            h.add(Sample(tool: .codex, minutes: 10080, resetsAt: reset, reading: Reading(t: start.addingTimeInterval(Double(hour) * 3600), pct: Double(hour))))
+        }
+        let score = Backtest(history: h, tool: .codex, minutes: 10080, config: .weekly).run(LinearPace(lookback: 3600))
+        #expect(score.horizons.allSatisfy { $0.samples > 0 && $0.mae < 1e-6 })
+        #expect(score.truePositives > 0 && score.falsePositives == 0)
+    }
+}
