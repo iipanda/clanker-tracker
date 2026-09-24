@@ -6,7 +6,8 @@ It reads the limit data both tools already keep on your Mac, shows how much of e
 used, projects your current pace forward, and warns you before you run out. It also works out what
 your usage would cost at API list prices, like [ccusage](https://github.com/ryoppippi/ccusage), and
 keeps that history so you can compare days, weeks and months. Everything is computed on your Mac
-from files that are already there; the one download is a public price list, once a day.
+from files that are already there. It downloads a public price list once a day, and, if you turn it
+on, checks your Claude limits with Anthropic at most every 30 minutes.
 
 <p align="center">
   <picture>
@@ -32,6 +33,8 @@ and starts it. Add `--no-open-at-login` to leave your login items as they are.
 - **Menu bar icon**: a ring that fills with whichever limit is closest to running out, plus its
   percentage. It matches the monochrome style of other menu bar icons, turns amber when your pace
   would hit 100% before the reset, and switches to a red countdown to the reset once you reach the limit.
+- **Fable weekly**: Claude's separate weekly limit for Fable models gets its own row, tab, forecast
+  and alerts next to the shared 5-hour and weekly limits. See [Fable weekly limit](#fable-weekly-limit).
 - **Dropdown**: every limit at a glance, with used %, "Runs out ~15:02" or "On track", and when it resets.
 - **App window**: per tool, a burn chart of the current window (recorded usage, projection at your
   current pace, and an even-pace line), pace vs. sustainable pace, forecast details, and how full
@@ -148,6 +151,32 @@ is within about 1% overall, the difference coming from how forked sub-agent sess
 
 Usage from other machines, or from claude.ai and Codex on the web, appears at the next local
 reading. Until then the app shows the last known value and how old it is.
+
+### Fable weekly limit
+
+Claude subscriptions count Fable models against a weekly limit of their own, on top of the shared
+5-hour and weekly limits. Claude Code keeps its latest reading in `~/.claude.json`
+(`cachedUsageUtilization`), which it refreshes when you run `/usage` and at other times of its
+choosing. The app reads it whenever that file changes, along with the older copies in
+`~/.claude/backups`.
+
+Between readings, the app estimates the Fable limit from your Fable usage. Each reading pairs a
+percentage with the API-equivalent cost of your Fable usage so far in that window, which gives the
+share of the limit per dollar (for example 49% after $175). The estimate continues from the last
+reading with that rate, shows as "≈12%", and names the reading it builds on. The next reading
+replaces it. After a weekly reset the estimate starts again from 0%.
+
+For fresher readings, turn on **Settings → Data sources → Claude Code → Check limits with
+Anthropic**. The app then asks Anthropic for your current limits, the same request Claude Code's
+`/usage` makes, using Claude Code's login from your Keychain:
+
+- It checks at most every 30 minutes, while you're using Claude Code or when the last Fable reading
+  is more than 6 hours old. After an error it waits an hour, or two after a rate limit.
+- macOS asks once whether Clanker Tracker may read the "Claude Code-credentials" Keychain item, and
+  again after an update, since releases are signed ad hoc. Choose **Always Allow**.
+- It uses the login token as is and leaves refreshing it to Claude Code, so your Claude Code login
+  stays exactly as it is. When the token has expired, the check waits for Claude Code's next refresh.
+- Settings shows when the last check ran and how it went.
 
 ## Install
 

@@ -23,12 +23,12 @@ public struct UsageHistory: Codable, Sendable, Equatable {
               s.reading.t <= s.resetsAt.addingTimeInterval(Self.resetTolerance)
         else { return }
         if let i = windows.firstIndex(where: {
-            $0.tool == s.tool && $0.minutes == s.minutes
+            $0.tool == s.tool && $0.minutes == s.minutes && $0.scope == s.scope
                 && abs($0.resetsAt.timeIntervalSince(s.resetsAt)) <= Self.resetTolerance
         }) {
             windows[i].insert(s.reading)
         } else {
-            windows.append(LimitWindow(tool: s.tool, minutes: s.minutes, resetsAt: s.resetsAt, points: [s.reading]))
+            windows.append(LimitWindow(tool: s.tool, minutes: s.minutes, resetsAt: s.resetsAt, points: [s.reading], scope: s.scope))
         }
     }
 
@@ -66,7 +66,7 @@ public struct UsageHistory: Codable, Sendable, Equatable {
     public func effectiveEnd(of w: LimitWindow) -> Date {
         let last = w.points.last?.t ?? w.start
         let takeover = windows
-            .filter { $0.tool == w.tool && $0.minutes == w.minutes && $0.resetsAt > w.resetsAt.addingTimeInterval(Self.resetTolerance) }
+            .filter { $0.tool == w.tool && $0.minutes == w.minutes && $0.scope == w.scope && $0.resetsAt > w.resetsAt.addingTimeInterval(Self.resetTolerance) }
             .compactMap { $0.points.first?.t }
             .filter { $0 >= last }
             .min()
@@ -74,23 +74,41 @@ public struct UsageHistory: Codable, Sendable, Equatable {
         return takeover
     }
 
+    /// A kind of limit: its length, and its scope for limits on part of the usage (e.g. Fable).
+    public struct Kind: Hashable, Sendable, Comparable {
+        public let minutes: Int
+        public let scope: String?
+
+        public static func < (a: Kind, b: Kind) -> Bool { (a.minutes, a.scope ?? "") < (b.minutes, b.scope ?? "") }
+    }
+
+    /// The limit kinds a tool has used recently, shortest first, main limits before scoped ones.
+    public func kinds(for tool: Tool, now: Date) -> [Kind] {
+        Set(windows.filter { $0.tool == tool && now.timeIntervalSince($0.lastSeen) <= Self.activeWithin }
+            .map { Kind(minutes: $0.minutes, scope: $0.scope) }).sorted()
+    }
+
     /// The current window of each limit kind the tool has used recently, shortest window first.
     /// "Current" is the window that got the latest reading: Codex windows can overlap after early resets.
     public func currentForecasts(for tool: Tool, now: Date) -> [Forecast] {
-        let ws = windows.filter { $0.tool == tool }
-        let kinds = Set(ws.filter { now.timeIntervalSince($0.lastSeen) <= Self.activeWithin }.map(\.minutes)).sorted()
-        return kinds.compactMap { minutes in
-            guard let w = ws.filter({ $0.minutes == minutes }).max(by: { ($0.lastSeen, $0.resetsAt) < ($1.lastSeen, $1.resetsAt) })
-            else { return nil }
-            return Forecast(w, end: effectiveEnd(of: w), heartbeat: heartbeats[tool.rawValue], now: now,
-                            past: pastSeries(tool: tool, minutes: minutes, before: now))
+        kinds(for: tool, now: now).compactMap { kind in
+            guard let w = current(tool: tool, kind: kind) else { return nil }
+            // The status line heartbeat vouches for the main limits only.
+            return Forecast(w, end: effectiveEnd(of: w), heartbeat: kind.scope == nil ? heartbeats[tool.rawValue] : nil, now: now,
+                            past: pastSeries(tool: tool, minutes: kind.minutes, scope: kind.scope, before: now))
         }
     }
 
+    /// The window of a kind that got the latest reading (estimated readings count).
+    public func current(tool: Tool, kind: Kind) -> LimitWindow? {
+        windows.filter { $0.tool == tool && $0.minutes == kind.minutes && $0.scope == kind.scope }
+            .max { ($0.points.last?.t ?? $0.lastSeen, $0.resetsAt) < ($1.points.last?.t ?? $1.lastSeen, $1.resetsAt) }
+    }
+
     /// Recent finished windows of one kind as usage series, for learning usual hours.
-    public func pastSeries(tool: Tool, minutes: Int, before now: Date, within: TimeInterval = 8 * 7 * 86400) -> [WindowSeries] {
+    public func pastSeries(tool: Tool, minutes: Int, scope: String? = nil, before now: Date, within: TimeInterval = 8 * 7 * 86400) -> [WindowSeries] {
         windows(for: tool)
-            .filter { $0.minutes == minutes && $0.points.count >= 3 && $0.resetsAt > now.addingTimeInterval(-within - TimeInterval(minutes) * 60) }
+            .filter { $0.minutes == minutes && $0.scope == scope && $0.points.count >= 3 && $0.resetsAt > now.addingTimeInterval(-within - TimeInterval(minutes) * 60) }
             .map { (w: $0, end: effectiveEnd(of: $0)) }
             .filter { $0.end <= now }
             .map { WindowSeries($0.w, end: $0.end) }

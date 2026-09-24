@@ -22,6 +22,7 @@ enum Snapshot {
                 let scheme: ColorScheme = appearance == .aqua ? .light : .dark
                 image(OverviewPane(model: model).frame(width: 820), scheme, to: dir.appending(path: "overview-\(suffix).png"))
                 image(ToolPane(model: model, tool: .codex).frame(width: 820), scheme, to: dir.appending(path: "codex-\(suffix).png"))
+                image(ToolPane(model: model, tool: .claude).frame(width: 820), scheme, to: dir.appending(path: "claude-\(suffix).png"))
                 image(SpendView(model: model).frame(width: 820), scheme, to: dir.appending(path: "spend-\(suffix).png"))
             }
             print("Snapshots in \(dir.path)")

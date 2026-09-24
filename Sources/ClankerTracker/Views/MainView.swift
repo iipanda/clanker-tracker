@@ -126,7 +126,10 @@ struct PastWeeksView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            ForEach(tools) { tool in row(tool) }
+            ForEach(tools) { tool in
+                row(tool, scope: nil)
+                ForEach(model.scopes(tool), id: \.self) { scope in row(tool, scope: scope) }
+            }
         }
     }
 
@@ -137,10 +140,10 @@ struct PastWeeksView: View {
         }
     }
 
-    @ViewBuilder private func row(_ tool: Tool) -> some View {
-        let bars = model.pastWeeks(tool)
+    @ViewBuilder private func row(_ tool: Tool, scope: String?) -> some View {
+        let bars = model.pastWeeks(tool, scope: scope)
         HStack(alignment: .center, spacing: 16) {
-            Text(tool.displayName)
+            Text(scope.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? tool.displayName)
                 .foregroundStyle(.secondary)
                 .frame(width: 100, alignment: .leading)
             if bars.isEmpty {
@@ -160,7 +163,7 @@ struct PastWeeksView: View {
                                 .frame(height: max(2, 64 * bar.peak / 100))
                                 .frame(maxWidth: .infinity)
                                 .help((bar.isCurrent ? "Current window: \(Fmt.pct(bar.peak)) so far" : "Ended \(Fmt.monthDay(bar.end)): peaked at \(Fmt.pct(bar.peak))")
-                                      + " · \(Fmt.usd(model.windowSpend(tool, from: bar.start, to: bar.end).usd)) API equivalent")
+                                      + " · \(Fmt.usd(model.windowSpend(tool, scope: scope, from: bar.start, to: bar.end).usd)) API equivalent")
                         }
                     }
                     .frame(height: 64, alignment: .bottom)

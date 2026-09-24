@@ -110,6 +110,23 @@ struct SettingsView: View {
         if let error = model.hookError {
             Text(error).font(.caption).foregroundStyle(Palette.warn)
         }
+        Toggle(isOn: Binding(get: { model.settings.checkUsage }, set: { model.setUsageChecks($0) })) {
+            Text("Check limits with Anthropic, at most every 30 minutes")
+            Text("Reads your Fable limit (and the others while Claude Code is idle) the way /usage does, using Claude Code's login from your Keychain. macOS asks once to allow it. Between checks, Fable is estimated from your Fable usage.")
+        }
+        if model.settings.checkUsage, let check = model.usageCheck {
+            Text(usageCheckText(check)).font(.caption).foregroundStyle(check.outcome == "updated" ? Palette.ok : .secondary)
+        }
+    }
+
+    private func usageCheckText(_ c: UsageCheck) -> String {
+        let when = Fmt.ago(model.now.timeIntervalSince(c.at))
+        switch c.outcome {
+        case "updated": return "Last checked \(when)"
+        case "noLogin": return "Checked \(when): Claude Code's login isn't available (sign in to Claude Code, or allow Keychain access)"
+        case "loginExpired": return "Checked \(when): Claude Code's login needs refreshing; it does that the next time it runs"
+        default: return "Checked \(when): Anthropic didn't answer (\(c.outcome)); trying again later"
+        }
     }
 
     private func installed(_ detail: String) -> some View {

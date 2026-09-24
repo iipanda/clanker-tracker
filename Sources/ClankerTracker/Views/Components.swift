@@ -40,8 +40,15 @@ enum StatusText {
         return "Resets " + (f.leftHours < 24 ? Fmt.clock(f.end) : Fmt.dayClock(f.end))
     }
 
+    /// "Estimated from Fable usage since the Tue 04:15 reading"
+    static func estimateNote(_ f: Forecast) -> String? {
+        guard f.isEstimated, let scope = f.window.scopeName else { return nil }
+        guard let r = f.lastReported else { return "Estimated from \(scope) usage this window" }
+        return "Estimated from \(scope) usage since the \(Fmt.when(r.t, short: f.now.timeIntervalSince(r.t) < 12 * 3600)) reading"
+    }
+
     static func staleness(_ f: Forecast) -> String? {
-        guard f.isStale else { return nil }
+        guard f.isStale, !f.isEstimated else { return nil }
         let ago = Fmt.ago(f.now.timeIntervalSince(f.lastSeen))
         return f.tool == .claude ? "Last reading \(ago) · updates while Claude Code runs" : "Last reading \(ago)"
     }

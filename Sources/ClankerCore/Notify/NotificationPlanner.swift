@@ -45,7 +45,7 @@ public enum NotificationPlanner {
 
         for f in forecasts {
             let name = f.tool.displayName, kind = f.window.sentenceLabel, short = f.window.isShort
-            let fresh = now.timeIntervalSince(f.lastSeen) <= freshness
+            let fresh = now.timeIntervalSince(f.lastUpdate) <= freshness
 
             if f.isReset {
                 if prefs.reset, now.timeIntervalSince(f.end) <= freshness, f.window.peak > 0 {

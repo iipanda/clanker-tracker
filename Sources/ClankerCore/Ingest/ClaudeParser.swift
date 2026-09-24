@@ -34,17 +34,57 @@ public enum ClaudeParser {
               let utilization = cached["utilization"] as? [String: Any]
         else { return nil }
         let at = Date(timeIntervalSince1970: ms / 1000)
-        return (samples(rateLimits: utilization, at: at, percentKey: "utilization"), at)
+        return (samples(usage: utilization, at: at), at)
+    }
+
+    /// Readings from a usage response (Claude Code's cache, or Anthropic's usage endpoint):
+    /// the `limits` list when present, which includes model-scoped limits like
+    /// `{"kind":"weekly_scoped","percent":49,"scope":{"model":{"display_name":"Fable"}}}`,
+    /// otherwise the `five_hour` / `seven_day` / `seven_day_<model>` entries.
+    public static func samples(usage: [String: Any], at t: Date) -> [Sample] {
+        if let limits = usage["limits"] as? [[String: Any]], !limits.isEmpty {
+            return limits.compactMap { l -> Sample? in
+                guard let kind = l["kind"] as? String, let pct = number(l["percent"]),
+                      let resetsAt = date(l["resets_at"]), resetsAt > t.addingTimeInterval(-60)
+                else { return nil }
+                switch kind {
+                case "session":
+                    return Sample(tool: .claude, minutes: 300, resetsAt: resetsAt, reading: Reading(t: t, pct: pct))
+                case "weekly_all":
+                    return Sample(tool: .claude, minutes: 10080, resetsAt: resetsAt, reading: Reading(t: t, pct: pct))
+                case "weekly_scoped":
+                    let scope = l["scope"] as? [String: Any], model = scope?["model"] as? [String: Any]
+                    guard let name = (model?["display_name"] as? String) ?? (model?["id"] as? String), !name.isEmpty else { return nil }
+                    return Sample(tool: .claude, minutes: 10080, resetsAt: resetsAt, reading: Reading(t: t, pct: pct), scope: scopeID(name))
+                default:
+                    return nil
+                }
+            }
+        }
+        return samples(rateLimits: usage, at: t, percentKey: "utilization")
+    }
+
+    /// "Fable" or "claude-fable-5" → "fable"
+    static func scopeID(_ name: String) -> String {
+        let lower = name.lowercased()
+        let words = lower.split { !$0.isLetter }.filter { $0 != "claude" }
+        return words.first.map(String.init) ?? lower
     }
 
     static func samples(rateLimits: [String: Any], at t: Date, percentKey: String) -> [Sample] {
-        windows.compactMap { key, minutes in
+        var keys = windows.map { (key: $0.key, minutes: $0.minutes, scope: String?.none) }
+        // Model-scoped weekly limits, e.g. "seven_day_opus".
+        for key in rateLimits.keys where key.hasPrefix("seven_day_") {
+            let model = String(key.dropFirst("seven_day_".count))
+            if ["opus", "sonnet", "fable", "haiku", "mythos"].contains(model) { keys.append((key, 10080, model)) }
+        }
+        return keys.compactMap { key, minutes, scope in
             guard let w = rateLimits[key] as? [String: Any],
-                  let pct = number(w[percentKey]),
+                  let pct = number(w[percentKey]) ?? number(w["used_percentage"]),
                   let resetsAt = date(w["resets_at"]),
                   resetsAt > t.addingTimeInterval(-60)
             else { return nil }
-            return Sample(tool: .claude, minutes: minutes, resetsAt: resetsAt, reading: Reading(t: t, pct: pct))
+            return Sample(tool: .claude, minutes: minutes, resetsAt: resetsAt, reading: Reading(t: t, pct: pct), scope: scope)
         }
     }
 

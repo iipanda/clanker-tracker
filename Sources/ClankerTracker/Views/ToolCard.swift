@@ -7,12 +7,13 @@ struct ToolCard: View {
     let model: AppModel
     var detailsExpanded = false
 
-    @State private var selectedMinutes: Int?
+    /// The selected limit, by `LimitWindow.kindKey`.
+    @State private var selectedKind: String?
     @State private var showDetails = false
 
     var body: some View {
         let forecasts = model.forecasts(tool)
-        let f = forecasts.first { $0.window.minutes == selectedMinutes } ?? forecasts.first
+        let f = forecasts.first { $0.window.kindKey == selectedKind } ?? forecasts.first
 
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 20) {
@@ -65,8 +66,8 @@ struct ToolCard: View {
             }
             Spacer()
             if forecasts.count > 1 {
-                WindowSwitch(options: forecasts.map { ($0.window.minutes, $0.window.shortLabel) },
-                             selection: selectedMinutes ?? forecasts.first?.window.minutes ?? 0) { selectedMinutes = $0 }
+                WindowSwitch(options: forecasts.enumerated().map { ($0.offset, $0.element.window.shortLabel) },
+                             selection: forecasts.firstIndex { $0.window.kindKey == selectedKind } ?? 0) { selectedKind = forecasts[$0].window.kindKey }
             } else if let only = forecasts.first {
                 Text("\(only.window.label) limit only").font(.caption).foregroundStyle(.secondary)
             }
@@ -76,7 +77,7 @@ struct ToolCard: View {
     @ViewBuilder private func headline(_ f: Forecast) -> some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(Fmt.pct(f.used))
+                Text((f.isEstimated ? "≈" : "") + Fmt.pct(f.used))
                     .font(.system(size: 40, weight: .medium))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -104,6 +105,9 @@ struct ToolCard: View {
         }
         if let spike = f.spikeRunoutDate {
             return ("Runs out ~\(Fmt.clock(spike)) at this pace", "If this spike settles: about \(Fmt.pct(f.projected)) at reset", Palette.warn)
+        }
+        if let note = StatusText.estimateNote(f) {
+            return ("On track", note, Palette.ok)
         }
         if let stale = StatusText.staleness(f) { return ("On track", stale, Palette.ok) }
         return ("On track", "About \(Fmt.pct(f.projected)) at reset", Palette.ok)
@@ -144,8 +148,9 @@ struct ToolCard: View {
             ("Even pace now", "\(Fmt.pct(f.even, digits: 1)) (\(String(format: "%.1f", abs(lead))) pts \(lead >= 0 ? "ahead" : "behind"))"),
             (short ? "Budget per hour" : "Budget per day", short ? Fmt.pct(f.sustainable, digits: 1) : Fmt.pct(f.sustainable * 24, digits: 1)),
             ("Forecast learns from", f.learnedFrom == 0 ? "This window so far" : "Your usual hours in \(f.learnedFrom) past window\(f.learnedFrom == 1 ? "" : "s")"),
-            ("API equivalent this window", Fmt.usd(model.windowSpend(tool, from: f.start, to: f.end).usd)),
-            ("Last reading", Fmt.ago(f.now.timeIntervalSince(f.lastSeen))),
+            ("API equivalent this window", Fmt.usd(model.windowSpend(tool, scope: f.window.scope, from: f.start, to: f.end).usd)),
+            (f.isEstimated ? "Last reported reading" : "Last reading",
+             f.lastReported.map { Fmt.ago(f.now.timeIntervalSince($0.t)) } ?? "None yet in this window"),
         ]
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
             ForEach(rows, id: \.0) { row in

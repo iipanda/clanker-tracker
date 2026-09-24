@@ -21,6 +21,8 @@ public struct AppPaths: Sendable {
     public var spendFile: URL { support.appending(path: "spend.json") }
     public var seenFile: URL { support.appending(path: "spend-seen.bin") }
     public var pricesFile: URL { support.appending(path: "prices.json") }
+    /// Claude Code's backups of ~/.claude.json, which keep older usage responses.
+    public var claudeBackups: URL { claudeHome.appending(path: "backups", directoryHint: .isDirectory) }
     /// Claude Code transcripts, read for token usage.
     public var claudeProjects: URL { claudeHome.appending(path: "projects", directoryHint: .isDirectory) }
     public var stateFile: URL { support.appending(path: "state.json") }
