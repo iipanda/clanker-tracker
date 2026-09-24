@@ -116,7 +116,7 @@ struct PastWeeksView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Recent weekly windows").font(.system(size: 13, weight: .semibold))
-                    Text("How full each weekly window got before it reset").font(.caption).foregroundStyle(.secondary)
+                    Text("How full each weekly window got before it reset. Click one to see its usage.").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 HStack(spacing: 14) {
@@ -156,14 +156,20 @@ struct PastWeeksView: View {
                     HStack(alignment: .bottom, spacing: 6) {
                         ForEach(0..<(8 - bars.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
                         ForEach(bars) { bar in
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(bar.peak >= 100 ? Palette.warn : Palette.accent)
-                                .opacity(bar.isCurrent ? 0.35 : 0.85)
-                                .frame(maxWidth: 26)
-                                .frame(height: max(2, 64 * bar.peak / 100))
-                                .frame(maxWidth: .infinity)
-                                .help((bar.isCurrent ? "Current window: \(Fmt.pct(bar.peak)) so far" : "Ended \(Fmt.monthDay(bar.end)): peaked at \(Fmt.pct(bar.peak))")
-                                      + " · \(Fmt.usd(model.windowSpend(tool, scope: scope, from: bar.start, to: bar.end).usd)) API equivalent")
+                            let viewed = model.browsing[tool] == bar.id
+                            Button { model.browsing[tool] = bar.isCurrent ? nil : bar.id } label: {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(bar.peak >= 100 ? Palette.warn : Palette.accent)
+                                    .opacity(bar.isCurrent ? 0.35 : 0.85)
+                                    .overlay { if viewed { RoundedRectangle(cornerRadius: 3).strokeBorder(.primary.opacity(0.7), lineWidth: 1.5) } }
+                                    .frame(maxWidth: 26)
+                                    .frame(height: max(2, 64 * bar.peak / 100))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help((bar.isCurrent ? "Current window: \(Fmt.pct(bar.peak)) so far" : "Ended \(Fmt.monthDay(bar.end)): peaked at \(Fmt.pct(bar.peak))")
+                                  + " · \(Fmt.usd(model.windowSpend(tool, scope: scope, from: bar.start, to: bar.end).usd)) API equivalent · Click to see its usage")
                         }
                     }
                     .frame(height: 64, alignment: .bottom)

@@ -182,6 +182,22 @@ private func window(_ minutes: Int, elapsedHours: Double, _ readings: [(Double, 
         #expect(h.effectiveEnd(of: h.windows(for: .codex)[1]) == Date(timeIntervalSince1970: 1_500_000))
     }
 
+    @Test func endedWindowsMatchEffectiveEndsAndLeaveOutRunningOnes() {
+        var h = UsageHistory()
+        h.add(sample(10080, reset: 1_000_000, at: 500_000, 40))
+        h.add(sample(10080, reset: 1_000_000, at: 880_000, 100))
+        h.add(sample(10080, reset: 1_500_000, at: 900_000, 2))   // took over early
+        h.add(sample(10080, reset: 1_600_000, at: 1_000_000, 7)) // overlaps the one before
+        h.add(sample(10080, reset: 1_600_000, at: 1_200_000, 9))
+        h.add(sample(10080, reset: 1_500_000, at: 1_300_000, 5))
+        let ended = h.endedWindows(tool: .codex, minutes: 10080, scope: nil, now: Date(timeIntervalSince1970: 1_550_000))
+        #expect(ended.map(\.end) == [Date(timeIntervalSince1970: 900_000), Date(timeIntervalSince1970: 1_500_000)])
+        for e in ended { #expect(e.end == h.effectiveEnd(of: e.window)) }
+        #expect(ended[0].endedEarly && !ended[1].endedEarly)
+        #expect(ended[0].hitAt == Date(timeIntervalSince1970: 880_000))
+        #expect(ended[0].curve.last?.t == ended[0].end)
+    }
+
     @Test func mergingIsIdempotentAndOrderFree() {
         let samples = (0..<50).map { sample(10080, reset: 1_000_000, at: 400_000 + Double($0) * 600, Double($0 / 5)) }
         var a = UsageHistory(), b = UsageHistory()

@@ -3,9 +3,23 @@ import ClankerCore
 import SwiftUI
 
 /// Usage over the window: recorded line, dashed projection (following your usual hours, ending where
-/// it would hit 100%), and a faint dotted even-pace line from 0% to 100%.
+/// it would hit 100%), and a faint dotted even-pace line from 0% to 100%. For an ended window, just
+/// what was recorded.
 struct BurnChart: View {
-    let f: Forecast
+    private let start: Date
+    private let end: Date
+    /// Where the even-pace line stops: 100% at the reset, less where a window was reset early.
+    private let evenEnd: Double
+    private let usage: [Point]
+    private let projection: [Point]
+    /// The latest value, marked with a dot while the window runs.
+    private let latest: Point?
+    private let runout: Date?
+    private let isShort: Bool
+    /// Before this the hover shows recorded usage, after it the projection.
+    private let now: Date
+    private let value: (Date) -> Double
+    private let accessibilityText: String
     @State private var selected: Date?
 
     private struct Point: Identifiable {
@@ -14,13 +28,40 @@ struct BurnChart: View {
         let v: Double
     }
 
-    var body: some View {
-        let usage = usagePoints
-        let projection = f.projectionPoints().enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
-        let projectionEnd = projection.last ?? Point(id: 0, t: f.now, v: f.used)
+    init(f: Forecast) {
+        start = f.start
+        end = f.end
+        evenEnd = 100
+        var pts = f.curve.enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
+        if let last = pts.last, last.t < f.now { pts.append(Point(id: pts.count, t: f.now, v: f.used)) }
+        usage = pts
+        projection = f.projectionPoints().enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
+        latest = Point(id: 0, t: f.now, v: f.used)
+        runout = f.runsOut ? (projection.last?.t ?? f.now) : nil
+        isShort = f.window.isShort
+        now = f.now
+        value = f.estimate(at:)
+        accessibilityText = "\(Fmt.pct(f.used)) used"
+            + (f.runoutDate.map { ", projected to run out at \(Fmt.moment($0, now: f.now))" } ?? ", about \(Fmt.pct(f.projected)) at reset")
+    }
 
+    init(past w: EndedWindow, now: Date) {
+        start = w.start
+        end = w.end
+        evenEnd = min(100, w.end.timeIntervalSince(w.start) / w.window.duration * 100)
+        usage = w.curve.enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
+        projection = []
+        latest = nil
+        runout = nil
+        isShort = w.window.isShort
+        self.now = now
+        value = w.value(at:)
+        accessibilityText = "Peaked at \(Fmt.pct(w.peak)), ended \(Fmt.moment(w.end, now: now))"
+    }
+
+    var body: some View {
         Chart {
-            ForEach([Point(id: 0, t: f.start, v: 0), Point(id: 1, t: f.end, v: 100)]) { p in
+            ForEach([Point(id: 0, t: start, v: 0), Point(id: 1, t: end, v: evenEnd)]) { p in
                 LineMark(x: .value("Time", p.t), y: .value("Used", p.v), series: .value("Series", "even"))
                     .foregroundStyle(Color.secondary.opacity(0.6))
                     .lineStyle(StrokeStyle(lineWidth: 1, lineCap: .round, dash: [1, 4]))
@@ -35,22 +76,24 @@ struct BurnChart: View {
                     .foregroundStyle(Palette.accent)
                     .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
-            if f.runsOut {
-                PointMark(x: .value("Time", projectionEnd.t), y: .value("Used", 100))
+            if let runout {
+                PointMark(x: .value("Time", runout), y: .value("Used", 100))
                     .symbol { Circle().strokeBorder(Palette.warn, lineWidth: 1.75).background(Circle().fill(.background)).frame(width: 9, height: 9) }
             }
-            PointMark(x: .value("Time", f.now), y: .value("Used", f.used))
-                .symbol { Circle().fill(Palette.accent).overlay(Circle().stroke(.background, lineWidth: 2)).frame(width: 9, height: 9) }
+            if let latest {
+                PointMark(x: .value("Time", latest.t), y: .value("Used", latest.v))
+                    .symbol { Circle().fill(Palette.accent).overlay(Circle().stroke(.background, lineWidth: 2)).frame(width: 9, height: 9) }
+            }
 
             if let selected {
-                let v = f.estimate(at: selected)
+                let v = value(selected)
                 RuleMark(x: .value("Time", selected))
                     .foregroundStyle(Color.secondary.opacity(0.5))
                     .lineStyle(StrokeStyle(lineWidth: 1))
                     .annotation(position: .top, spacing: 2, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
                         HStack(spacing: 4) {
-                            Text("\(Fmt.pct(v, digits: 1)) \(selected <= f.now ? "used" : "projected")")
-                            Text("· \(Fmt.moment(selected, now: f.now))").foregroundStyle(.secondary)
+                            Text("\(Fmt.pct(v, digits: 1)) \(selected <= now ? "used" : "projected")")
+                            Text("· \(Fmt.moment(selected, now: now))").foregroundStyle(.secondary)
                         }
                         .font(.caption)
                         .padding(.horizontal, 7)
@@ -59,7 +102,7 @@ struct BurnChart: View {
                     }
             }
         }
-        .chartXScale(domain: f.start...f.end)
+        .chartXScale(domain: start...end)
         .chartYScale(domain: 0...104) // headroom so marks at 100% aren't clipped
         .chartYAxis {
             AxisMarks(position: .leading, values: [0, 50, 100]) { value in
@@ -71,7 +114,7 @@ struct BurnChart: View {
             AxisMarks(values: xTicks) { value in
                 AxisValueLabel(centered: false) {
                     if let d = value.as(Date.self) {
-                        Text(f.window.isShort ? d.formatted(.dateTime.hour()) : Fmt.weekday(d))
+                        Text(isShort ? d.formatted(.dateTime.hour()) : Fmt.weekday(d))
                     }
                 }
             }
@@ -81,39 +124,31 @@ struct BurnChart: View {
         .accessibilityLabel(accessibilityText)
     }
 
-    private var usagePoints: [Point] {
-        var pts = f.curve.enumerated().map { Point(id: $0.offset, t: $0.element.t, v: $0.element.pct) }
-        if let last = pts.last, last.t < f.now { pts.append(Point(id: pts.count, t: f.now, v: f.used)) }
-        return pts
-    }
-
     /// Noon of each day for weekly windows (the label sits in the middle of its day), each hour for short ones.
     private var xTicks: [Date] {
         let cal = Calendar.current
         var out: [Date] = []
-        if f.window.isShort {
-            guard var d = cal.nextDate(after: f.start, matching: DateComponents(minute: 0), matchingPolicy: .nextTime) else { return [] }
-            while d < f.end { out.append(d); d = d.addingTimeInterval(3600) }
+        if isShort {
+            guard var d = cal.nextDate(after: start, matching: DateComponents(minute: 0), matchingPolicy: .nextTime) else { return [] }
+            while d < end { out.append(d); d = d.addingTimeInterval(3600) }
         } else {
-            guard var d = cal.nextDate(after: f.start, matching: DateComponents(hour: 12), matchingPolicy: .nextTime) else { return [] }
-            while d < f.end {
+            guard var d = cal.nextDate(after: start, matching: DateComponents(hour: 12), matchingPolicy: .nextTime) else { return [] }
+            while d < end {
                 out.append(d)
-                d = cal.date(byAdding: .day, value: 1, to: d) ?? f.end
+                d = cal.date(byAdding: .day, value: 1, to: d) ?? end
             }
         }
         return out
     }
-
-    private var accessibilityText: String {
-        "\(Fmt.pct(f.used)) used" + (f.runoutDate.map { ", projected to run out at \(Fmt.moment($0, now: f.now))" } ?? ", about \(Fmt.pct(f.projected)) at reset")
-    }
 }
 
 struct ChartLegend: View {
+    var forecast = true
+
     var body: some View {
         HStack(spacing: 16) {
             item("Used") { Capsule().fill(Palette.accent).frame(width: 14, height: 2) }
-            item("Forecast") { Dashes(color: Palette.accent.opacity(0.7), dash: [4, 3]) }
+            if forecast { item("Forecast") { Dashes(color: Palette.accent.opacity(0.7), dash: [4, 3]) } }
             item("Even pace") { Dashes(color: .secondary, dash: [1, 3]) }
         }
         .font(.caption)

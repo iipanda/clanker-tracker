@@ -51,7 +51,11 @@ enum SpendPeriod: String, CaseIterable, Identifiable {
         if i.start <= now && now < i.end { return self == .day ? "Today" : "This \(rawValue)" }
         switch self {
         case .day: return i.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-        case .week: return "\(Fmt.monthDay(i.start))–\(Fmt.monthDay(i.end.addingTimeInterval(-1)))"
+        case .week:
+            let last = i.end.addingTimeInterval(-1)
+            // A window reset early can start and end on the same day.
+            if Calendar.current.isDate(i.start, inSameDayAs: last) { return "\(Fmt.monthDay(i.start)), \(Fmt.clock(i.start))–\(Fmt.clock(i.end))" }
+            return "\(Fmt.monthDay(i.start))–\(Fmt.monthDay(last))"
         case .month: return i.start.formatted(.dateTime.month(.wide).year())
         }
     }
@@ -129,6 +133,8 @@ final class AppModel {
     private(set) var hookError: String?
     var now = Date()
     var pane: Pane? = .overview
+    /// The ended window each tool's card shows instead of the current one, by window id.
+    var browsing: [Tool: String] = [:]
     let settings = AppSettings()
     let isDemo: Bool
 
@@ -215,6 +221,17 @@ final class AppModel {
     var tightest: Forecast? { Tightest.pick(allForecasts) }
     func tightest(_ tool: Tool) -> Forecast? { Tightest.pick(forecasts(tool)) }
     func pastWeeks(_ tool: Tool, scope: String? = nil) -> [WeekBar] { PastWeeks.bars(history, tool: tool, scope: scope, now: now) }
+    /// Ended windows of a limit kind, oldest first, for browsing past usage.
+    func endedWindows(_ w: LimitWindow) -> [EndedWindow] {
+        history.endedWindows(tool: w.tool, minutes: w.minutes, scope: w.scope, now: now)
+    }
+
+    /// The ended window a tool's card is showing, if any.
+    func browsedWindow(_ tool: Tool) -> EndedWindow? {
+        guard let id = browsing[tool], let w = history.windows.first(where: { $0.id == id }) else { return nil }
+        return endedWindows(w).first { $0.id == id }
+    }
+
     /// Scoped weekly limits a tool has (e.g. ["fable"]).
     func scopes(_ tool: Tool) -> [String] {
         history.kinds(for: tool, now: now).compactMap(\.scope)

@@ -7,7 +7,8 @@ struct SpendView: View {
     let model: AppModel
     @State private var period: SpendPeriod = .week
     @State private var toolFilter: Tool?
-    @State private var selected: Date?
+    /// The hovered or clicked bar, by `key(_:)`.
+    @State private var selected: String?
 
     var body: some View {
         // One more than the chart shows, so the oldest bar has a period to compare with.
@@ -26,11 +27,12 @@ struct SpendView: View {
         .onChange(of: toolFilter) { selected = nil }
     }
 
-    /// Periods touch, so the one a moment belongs to is the one it's in or at the start of.
     private func selectedInterval(_ periods: [DateInterval]) -> DateInterval {
-        guard let selected, let hit = periods.first(where: { $0.start <= selected && selected < $0.end }) else { return periods[periods.count - 1] }
-        return hit
+        periods.first { key($0) == selected } ?? periods[periods.count - 1]
     }
+
+    /// Identifies a period's bar on the chart's x axis.
+    private func key(_ p: DateInterval) -> String { "\(Int(p.start.timeIntervalSince1970))" }
 
     // MARK: Controls
 
@@ -104,13 +106,13 @@ struct SpendView: View {
 
     private func chart(_ periods: [DateInterval], selected current: DateInterval) -> some View {
         let bars = periods.flatMap { p in
-            var top = 0.0
-            return (toolFilter.map { [$0] } ?? Tool.allCases).map { tool in
+            (toolFilter.map { [$0] } ?? Tool.allCases).map { tool in
                 let usd = model.summary(tool, p).usd
-                defer { top += usd }
-                return Bar(period: p, tool: tool, from: top, to: top + usd)
+                return Bar(period: p, key: key(p), tool: tool, usd: usd)
             }
         }
+        // Weekly windows that reset early are shorter, so their length goes under the date.
+        let uneven = Set(periods.map { Int($0.duration / 3600) }).count > 1
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(period == .week ? "API equivalent per weekly window" : "API equivalent per \(period.rawValue)")
@@ -118,9 +120,15 @@ struct SpendView: View {
                 Spacer()
                 Text("Click a bar to see that \(period.rawValue)").font(.caption).foregroundStyle(.secondary)
             }
-            Chart(bars) { mark($0, highlighted: $0.period == current) }
+            // Every period gets a bar of the same width, whatever its length.
+            Chart(bars) { bar in
+                BarMark(x: .value("Period", bar.key), y: .value("Cost", bar.usd), width: .ratio(0.7))
+                    .foregroundStyle(by: .value("Tool", bar.tool.displayName))
+                    .opacity(bar.period == current ? 1 : 0.45)
+                    .cornerRadius(2)
+            }
             .chartForegroundStyleScale([Tool.claude.displayName: Palette.accent, Tool.codex.displayName: Palette.codex])
-            .chartXScale(domain: periods[0].start...periods[periods.count - 1].end)
+            .chartXScale(domain: periods.map(key))
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
                     AxisGridLine().foregroundStyle(Palette.line)
@@ -128,13 +136,15 @@ struct SpendView: View {
                 }
             }
             .chartXAxis {
-                // Centered labels sit between a tick and the next, so the last bar needs a closing tick.
-                AxisMarks(values: periods.map(\.start) + [periods[periods.count - 1].end]) { value in
-                    // Weekly windows that reset early can be too narrow for a label; those are dropped.
-                    AxisValueLabel(centered: true, collisionResolution: period == .week ? .greedy : .disabled) {
-                        if let d = value.as(Date.self), let i = periods.first(where: { $0.start == d }),
-                           period != .day || periods.firstIndex(of: i).map({ $0 % 3 == 2 || i == periods.last }) == true {
-                            Text(period.axisLabel(i))
+                AxisMarks(values: periods.map(key)) { value in
+                    AxisValueLabel(collisionResolution: .disabled) {
+                        if let k = value.as(String.self), let n = periods.firstIndex(where: { key($0) == k }),
+                           period != .day || n % 3 == 2 || n == periods.count - 1 {
+                            let p = periods[n]
+                            VStack(spacing: 1) {
+                                Text(period.axisLabel(p))
+                                if uneven { Text(length(p)).foregroundStyle(.tertiary) }
+                            }
                         }
                     }
                 }
@@ -148,24 +158,22 @@ struct SpendView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Palette.line))
     }
 
-    /// Periods can differ in length (weekly windows that reset early), so bars span their period.
-    private func mark(_ bar: Bar, highlighted: Bool) -> some ChartContent {
-        let inset = bar.period.duration * 0.15
-        return RectangleMark(xStart: .value("Start", bar.period.start.addingTimeInterval(inset)),
-                             xEnd: .value("End", bar.period.end.addingTimeInterval(-inset)),
-                             yStart: .value("Cost", bar.from), yEnd: .value("Cost", bar.to))
-            .foregroundStyle(by: .value("Tool", bar.tool.displayName))
-            .opacity(highlighted ? 1 : 0.45)
-            .cornerRadius(2)
+    /// "9 h", "1 day", "3.9 days"
+    private func length(_ p: DateInterval) -> String {
+        let hours = p.duration / 3600
+        if hours < 23.5 { return "\(max(1, Int(hours.rounded()))) h" }
+        let days = hours / 24
+        if abs(days - days.rounded()) < 0.05 { return days.rounded() == 1 ? "1 day" : "\(Int(days.rounded())) days" }
+        return String(format: "%.1f days", days)
     }
 
     /// One tool's part of a period's stacked bar.
     private struct Bar: Identifiable {
         let period: DateInterval
+        let key: String
         let tool: Tool
-        let from: Double
-        let to: Double
-        var id: String { "\(period.start.timeIntervalSince1970).\(tool.rawValue)" }
+        let usd: Double
+        var id: String { "\(key).\(tool.rawValue)" }
     }
 
     // MARK: Breakdown

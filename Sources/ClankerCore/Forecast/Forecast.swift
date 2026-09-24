@@ -177,16 +177,38 @@ public struct WeekBar: Sendable, Identifiable, Equatable {
 public enum PastWeeks {
     /// Peak usage of the most recent weekly windows, oldest first, ending with the current one.
     public static func bars(_ history: UsageHistory, tool: Tool, scope: String? = nil, now: Date, count: Int = 8) -> [WeekBar] {
-        let weekly = history.windows(for: tool).filter { $0.minutes == 7 * 24 * 60 && $0.scope == scope }
         let current = history.currentForecasts(for: tool, now: now)
-            .first { $0.window.minutes == 7 * 24 * 60 && $0.window.scope == scope && !$0.isReset }?.window.id
-        let ended = weekly.filter { $0.id != current }
-            .map { (w: $0, end: history.effectiveEnd(of: $0)) }
-            .filter { $0.end <= now }
-            .sorted { $0.end < $1.end }
+            .first { $0.window.minutes == 7 * 24 * 60 && $0.window.scope == scope && !$0.isReset }?.window
+        let ended = history.endedWindows(tool: tool, minutes: 7 * 24 * 60, scope: scope, now: now)
             .suffix(current == nil ? count : count - 1)
-            .map { WeekBar(id: $0.w.id, start: $0.w.start, end: $0.end, peak: min(100, $0.w.peak), isCurrent: false) }
-        guard let current, let w = weekly.first(where: { $0.id == current }) else { return Array(ended) }
+            .map { WeekBar(id: $0.id, start: $0.start, end: $0.end, peak: $0.peak, isCurrent: false) }
+        guard let w = current else { return Array(ended) }
         return ended + [WeekBar(id: w.id, start: w.start, end: w.resetsAt, peak: min(100, w.peak), isCurrent: true)]
     }
+}
+
+/// A limit window that has ended, for looking back at its usage.
+public struct EndedWindow: Sendable, Identifiable, Equatable {
+    public let window: LimitWindow
+    /// When it actually ended: its reset time, or earlier when the provider reset it early.
+    public let end: Date
+
+    public init(window: LimitWindow, end: Date) {
+        self.window = window
+        self.end = end
+    }
+
+    public var id: String { window.id }
+    public var start: Date { window.start }
+    public var peak: Double { min(100, window.peak) }
+    public var endedEarly: Bool { end < window.resetsAt.addingTimeInterval(-UsageHistory.resetTolerance) }
+    /// Usage from (start, 0) to the end, never decreasing.
+    public var curve: [Reading] {
+        let c = Forecast.curve(window)
+        return c.last.map { $0.t < end ? c + [Reading(t: end, pct: $0.pct)] : c } ?? c
+    }
+    /// When usage reached the limit, if it did.
+    public var hitAt: Date? { Forecast.curve(window).first { $0.pct >= Forecast.hitThreshold }?.t }
+    /// Recorded usage at a time within the window.
+    public func value(at t: Date) -> Double { Forecast.interpolate(Forecast.curve(window), at: t) }
 }
