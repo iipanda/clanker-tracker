@@ -30,8 +30,15 @@ enum SpendPeriod: String, CaseIterable, Identifiable {
         Calendar.current.dateInterval(of: component, for: date) ?? DateInterval(start: date, duration: 86400)
     }
 
-    /// The `count` most recent periods, oldest first, ending with the current one.
-    func recent(now: Date) -> [DateInterval] {
+    /// The `count` most recent periods, oldest first, ending with the current one. Weeks follow the
+    /// weekly limit's resets (split where it reset early): the tool's, or Claude Code's for both tools.
+    /// Calendar weeks until a tool has weekly windows.
+    func recent(now: Date, history: UsageHistory, tool: Tool?, count: Int? = nil) -> [DateInterval] {
+        let count = count ?? self.count
+        if self == .week, let periods = (tool.map { [$0] } ?? Tool.allCases).lazy
+            .compactMap({ WeeklyPeriods.recent(history, tool: $0, now: now, count: count) }).first {
+            return periods
+        }
         var out: [DateInterval] = [interval(containing: now)]
         while out.count < count, let prev = Calendar.current.date(byAdding: component, value: -1, to: out[0].start) {
             out.insert(interval(containing: prev), at: 0)
@@ -41,10 +48,10 @@ enum SpendPeriod: String, CaseIterable, Identifiable {
 
     /// "Today", "This week", "Sep 21–27", "September"
     func name(_ i: DateInterval, now: Date) -> String {
-        if i.contains(now) { return self == .day ? "Today" : "This \(rawValue)" }
+        if i.start <= now && now < i.end { return self == .day ? "Today" : "This \(rawValue)" }
         switch self {
         case .day: return i.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-        case .week: return "Week of \(Fmt.monthDay(i.start))"
+        case .week: return "\(Fmt.monthDay(i.start))–\(Fmt.monthDay(i.end.addingTimeInterval(-1)))"
         case .month: return i.start.formatted(.dateTime.month(.wide).year())
         }
     }

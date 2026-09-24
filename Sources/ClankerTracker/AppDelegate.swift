@@ -41,7 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        show(.overview)
+        // Clicking the Dock icon brings the window back as it was, on the page it was on.
+        show(nil)
         return true
     }
 
@@ -57,8 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func showOverview() { show(.overview) }
     @objc func showSettings() { show(.settings) }
 
-    func show(_ pane: Pane) {
-        model.pane = pane
+    /// Opens the window on `pane`, or on the page it was last on when nil.
+    func show(_ pane: Pane?) {
+        if let pane { model.pane = pane }
         if window == nil {
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1000, height: 720),
