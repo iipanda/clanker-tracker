@@ -327,6 +327,8 @@ public struct LearnedPattern: UsageEstimator {
             w *= decay
         }
         let shrink = mean * 6 // about six hours of usual usage
+        // With no usage at all in the pattern there's nothing to compare against.
+        guard expected + shrink > 0 else { return (1, 1) }
         let raw = (observed + shrink) / (expected + shrink)
         return (raw, min(maxIntensity, raw))
     }

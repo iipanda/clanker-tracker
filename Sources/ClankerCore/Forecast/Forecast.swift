@@ -43,6 +43,12 @@ public struct Forecast: Sendable, Identifiable, Equatable {
     public let spikeRunoutDate: Date?
     /// The spike has calmed down: the recent pace is back well under what the limit can sustain.
     public var spikeCalm: Bool { (spikePace ?? 0) < sustainable * 0.8 }
+    /// The current value is estimated from token usage since the last reported reading.
+    public var isEstimated: Bool { window.isEstimated }
+    /// The latest reported reading (for estimated limits, where the estimate starts from).
+    public var lastReported: Reading? { window.lastReported }
+    /// When the value was last updated, reported or estimated.
+    public var lastUpdate: Date { max(lastSeen, window.points.last?.t ?? .distantPast) }
     /// The earliest run-out to warn about: the forecast's, or a spike's.
     public var alertRunout: Date? { runoutDate ?? spikeRunoutDate }
 
@@ -170,9 +176,10 @@ public struct WeekBar: Sendable, Identifiable, Equatable {
 
 public enum PastWeeks {
     /// Peak usage of the most recent weekly windows, oldest first, ending with the current one.
-    public static func bars(_ history: UsageHistory, tool: Tool, now: Date, count: Int = 8) -> [WeekBar] {
-        let weekly = history.windows(for: tool).filter { $0.minutes == 7 * 24 * 60 }
-        let current = history.currentForecasts(for: tool, now: now).first { $0.window.minutes == 7 * 24 * 60 && !$0.isReset }?.window.id
+    public static func bars(_ history: UsageHistory, tool: Tool, scope: String? = nil, now: Date, count: Int = 8) -> [WeekBar] {
+        let weekly = history.windows(for: tool).filter { $0.minutes == 7 * 24 * 60 && $0.scope == scope }
+        let current = history.currentForecasts(for: tool, now: now)
+            .first { $0.window.minutes == 7 * 24 * 60 && $0.window.scope == scope && !$0.isReset }?.window.id
         let ended = weekly.filter { $0.id != current }
             .map { (w: $0, end: history.effectiveEnd(of: $0)) }
             .filter { $0.end <= now }

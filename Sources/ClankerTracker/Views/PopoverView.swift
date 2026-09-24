@@ -105,7 +105,7 @@ private struct LimitRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(f.window.label)
                 Spacer()
-                Text(Fmt.pct(f.used)).fontWeight(.semibold).monospacedDigit()
+                Text((f.isEstimated ? "≈" : "") + Fmt.pct(f.used)).fontWeight(.semibold).monospacedDigit()
             }
             .font(.system(size: 13))
             UsageBar(pct: f.used, height: 5)

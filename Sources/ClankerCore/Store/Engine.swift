@@ -12,6 +12,14 @@ public struct EngineUpdate: Sendable {
     public var prices: PriceTable
     /// Set while the first full read of existing logs is running.
     public var backfill: BackfillProgress?
+    /// The last check with Anthropic's usage endpoint, if any.
+    public var usageCheck: UsageCheck?
+}
+
+public struct UsageCheck: Sendable, Equatable {
+    public var at: Date
+    /// "updated", "noLogin", "loginExpired", "failed <status>"
+    public var outcome: String
 }
 
 struct EngineState: Codable, Sendable {
@@ -26,6 +34,11 @@ struct EngineState: Codable, Sendable {
     var spendBackfillCompletedAt: Date?
     var claudeBootstrapAt: Date?
     var pricesCheckedAt: Date?
+    /// Bumped when reading Claude Code's usage cache learns something new (2: scoped limits like Fable).
+    var claudeBootstrapVersion = 0
+    var usageCheckAt: Date?
+    var usageBackoffUntil: Date?
+    var usageCheckOutcome: String?
 
     init() {}
 
@@ -41,6 +54,10 @@ struct EngineState: Codable, Sendable {
         spendBackfillCompletedAt = try c.decodeIfPresent(Date.self, forKey: .spendBackfillCompletedAt)
         claudeBootstrapAt = try c.decodeIfPresent(Date.self, forKey: .claudeBootstrapAt)
         pricesCheckedAt = try c.decodeIfPresent(Date.self, forKey: .pricesCheckedAt)
+        claudeBootstrapVersion = try c.decodeIfPresent(Int.self, forKey: .claudeBootstrapVersion) ?? 0
+        usageCheckAt = try c.decodeIfPresent(Date.self, forKey: .usageCheckAt)
+        usageBackoffUntil = try c.decodeIfPresent(Date.self, forKey: .usageBackoffUntil)
+        usageCheckOutcome = try c.decodeIfPresent(String.self, forKey: .usageCheckOutcome)
     }
 }
 
@@ -68,10 +85,16 @@ public actor Engine {
 
     /// Whether to download prices (off in tests and headless runs).
     private let downloadsPrices: Bool
+    /// Opt-in checks with Anthropic's usage endpoint (see `ClaudeUsageAPI`).
+    private var usageChecksEnabled = false
+    private let usageAPI: ClaudeUsageAPI
+    /// When Claude Code was last seen in use (a counted response or a status line update).
+    private var lastClaudeActivity: Date?
 
-    public init(paths: AppPaths = .standard, downloadsPrices: Bool = true) {
+    public init(paths: AppPaths = .standard, downloadsPrices: Bool = true, usageAPI: ClaudeUsageAPI = ClaudeUsageAPI()) {
         self.paths = paths
         self.downloadsPrices = downloadsPrices
+        self.usageAPI = usageAPI
         (updates, continuation) = AsyncStream.makeStream(of: EngineUpdate.self, bufferingPolicy: .bufferingNewest(1))
         // History and spend are the app's own record, kept after the tools delete old logs: a file
         // that can't be read is set aside rather than overwritten.
@@ -112,6 +135,35 @@ public actor Engine {
         publish()
         scheduleSave()
         await refreshPricesIfNeeded()
+        await checkUsageIfDue()
+    }
+
+    public func setUsageChecks(enabled: Bool) async {
+        usageChecksEnabled = enabled
+        if enabled { await checkUsageIfDue() }
+    }
+
+    /// Checks limits with Anthropic when enabled and due (see `ClaudeUsageAPI.shouldCheck`).
+    public func checkUsageIfDue(now: Date = Date()) async {
+        guard usageChecksEnabled, backfill == nil else { return }
+        let newestScoped = history.windows.filter { $0.tool == .claude && $0.scope != nil }.map(\.lastSeen).max()
+        let activity = [lastClaudeActivity, history.heartbeats[Tool.claude.rawValue]].compactMap { $0 }.max()
+        guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastClaudeActivity: activity,
+                                         newestScopedReading: newestScoped, backoffUntil: state.usageBackoffUntil)
+        else { return }
+        state.usageCheckAt = now
+        let response = await usageAPI.fetch(now: now)
+        history.add(contentsOf: response.samples)
+        state.usageBackoffUntil = ClaudeUsageAPI.backoff(after: response).map { now.addingTimeInterval($0) }
+        state.usageCheckOutcome = switch response.outcome {
+        case .updated: "updated"
+        case .noLogin: "noLogin"
+        case .loginExpired: "loginExpired"
+        case .failed(let status): "failed \(status.map(String.init) ?? "network")"
+        }
+        log.info("Usage check: \(self.state.usageCheckOutcome ?? "")")
+        publish()
+        scheduleSave()
     }
 
     public func currentHistory() -> UsageHistory { history }
@@ -259,6 +311,9 @@ public actor Engine {
     }
 
     private func count(_ events: [UsageEvent]) {
+        if backfill == nil, let latest = events.filter({ $0.tool == .claude }).map(\.t).max() {
+            lastClaudeActivity = max(lastClaudeActivity ?? .distantPast, latest)
+        }
         for var e in events {
             let output = UInt32(clamping: e.tokens.output)
             guard let counted = seen[e.dedupeKey] else {
@@ -322,14 +377,27 @@ public actor Engine {
         }
     }
 
-    /// Seeds Claude limits from the usage response Claude Code caches in ~/.claude.json.
+    static let claudeBootstrapVersion = 2
+
+    /// Seeds Claude limits from the usage response Claude Code caches in ~/.claude.json. The first
+    /// time a version reads more from it (e.g. the Fable limit), it also reads the older responses
+    /// kept in Claude Code's backups of that file.
     private func bootstrapClaude() {
-        guard let data = try? Data(contentsOf: paths.claudeJSON),
-              let (samples, fetchedAt) = ClaudeParser.bootstrap(claudeJSON: data),
-              fetchedAt > (state.claudeBootstrapAt ?? .distantPast)
-        else { return }
-        history.add(contentsOf: samples)
-        state.claudeBootstrapAt = fetchedAt
+        var files = [paths.claudeJSON]
+        let upgrade = state.claudeBootstrapVersion < Self.claudeBootstrapVersion
+        if upgrade {
+            let backups = (try? FileManager.default.contentsOfDirectory(at: paths.claudeBackups, includingPropertiesForKeys: nil)) ?? []
+            files += backups.filter { $0.lastPathComponent.hasPrefix(".claude.json.backup") }
+        }
+        for file in files {
+            guard let data = try? Data(contentsOf: file),
+                  let (samples, fetchedAt) = ClaudeParser.bootstrap(claudeJSON: data),
+                  upgrade || fetchedAt > (state.claudeBootstrapAt ?? .distantPast)
+            else { continue }
+            history.add(contentsOf: samples)
+            state.claudeBootstrapAt = max(state.claudeBootstrapAt ?? .distantPast, fetchedAt)
+        }
+        state.claudeBootstrapVersion = Self.claudeBootstrapVersion
     }
 
     // MARK: Prices
@@ -399,7 +467,8 @@ public actor Engine {
     // MARK: Output
 
     private func publish() {
-        continuation.yield(EngineUpdate(history: history, spend: spend, prices: prices, backfill: backfill))
+        let check = state.usageCheckAt.map { UsageCheck(at: $0, outcome: state.usageCheckOutcome ?? "") }
+        continuation.yield(EngineUpdate(history: history, spend: spend, prices: prices, backfill: backfill, usageCheck: check))
     }
 
     private func scheduleSave() {

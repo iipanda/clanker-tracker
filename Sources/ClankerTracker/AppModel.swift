@@ -82,11 +82,13 @@ final class AppSettings {
     var notifyReset: Bool { didSet { defaults.set(notifyReset, forKey: "notifyReset") } }
     var notifySpikes: Bool { didSet { defaults.set(notifySpikes, forKey: "notifySpikes") } }
     var refreshSeconds: Int { didSet { defaults.set(refreshSeconds, forKey: "refreshSeconds") } }
+    /// Opt-in: check limits with Anthropic using Claude Code's login (for Fable and when Claude Code is idle).
+    var checkUsage: Bool { didSet { defaults.set(checkUsage, forKey: "checkUsage") } }
 
     init() {
         defaults.register(defaults: [
             "menuBarMode": MenuBarMode.tightest.rawValue, "notifyRunout": true, "notifyThreshold": true,
-            "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60,
+            "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60, "checkUsage": false,
         ])
         menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .tightest
         notifyRunout = defaults.bool(forKey: "notifyRunout")
@@ -95,6 +97,7 @@ final class AppSettings {
         notifyReset = defaults.bool(forKey: "notifyReset")
         notifySpikes = defaults.bool(forKey: "notifySpikes")
         refreshSeconds = max(15, defaults.integer(forKey: "refreshSeconds"))
+        checkUsage = defaults.bool(forKey: "checkUsage")
     }
 
     var notificationPrefs: NotificationPrefs {
@@ -105,7 +108,12 @@ final class AppSettings {
 /// Everything the UI shows. Forecasts are recomputed from the history on every tick; they're cheap.
 @Observable
 final class AppModel {
+    /// Limit history as the engine recorded it, plus estimates for scoped limits (Fable) between their
+    /// reported readings (see `ScopedEstimate`).
     private(set) var history = UsageHistory()
+    @ObservationIgnored private var recorded = UsageHistory()
+    @ObservationIgnored private var estimatedAt = Date.distantPast
+    private(set) var usageCheck: UsageCheck?
     private(set) var backfill: BackfillProgress?
     private(set) var spend = SpendLedger()
     private(set) var prices = PriceTable.bundled
@@ -129,28 +137,36 @@ final class AppModel {
     func start() {
         refreshHookState()
         if isDemo {
-            history = DemoData.history(now: now)
+            recorded = DemoData.history(now: now)
             spend = DemoData.spend(now: now)
+            updateEstimates()
             hasLoaded = true
             return
         }
         tasks.append(Task { [weak self, engine] in
             for await update in engine.updates {
                 guard let self else { return }
-                self.history = update.history
+                self.recorded = update.history
                 self.backfill = update.backfill
                 self.spend = update.spend
                 self.prices = update.prices
+                self.usageCheck = update.usageCheck
                 self.hasLoaded = true
                 self.now = Date()
+                self.updateEstimates()
                 self.onUpdate?(update.backfill != nil)
             }
         })
-        tasks.append(Task { [engine] in await engine.start() })
+        let checkUsage = settings.checkUsage
+        tasks.append(Task { [engine] in
+            await engine.start()
+            await engine.setUsageChecks(enabled: checkUsage)
+        })
         tasks.append(Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 self?.now = Date()
+                if let self, self.now.timeIntervalSince(self.estimatedAt) > 60 { self.updateEstimates() }
             }
         })
         tasks.append(Task { [weak self, engine] in
@@ -161,6 +177,17 @@ final class AppModel {
                 self?.refreshHookState()
             }
         })
+    }
+
+    func setUsageChecks(_ enabled: Bool) {
+        settings.checkUsage = enabled
+        guard !isDemo else { return }
+        Task { [engine] in await engine.setUsageChecks(enabled: enabled) }
+    }
+
+    private func updateEstimates() {
+        estimatedAt = now
+        history = ScopedEstimate.apply(to: recorded, spend: spend, prices: prices, now: now)
     }
 
     func refresh() {
@@ -180,7 +207,11 @@ final class AppModel {
     var allForecasts: [Forecast] { history.currentForecasts(now: now) }
     var tightest: Forecast? { Tightest.pick(allForecasts) }
     func tightest(_ tool: Tool) -> Forecast? { Tightest.pick(forecasts(tool)) }
-    func pastWeeks(_ tool: Tool) -> [WeekBar] { PastWeeks.bars(history, tool: tool, now: now) }
+    func pastWeeks(_ tool: Tool, scope: String? = nil) -> [WeekBar] { PastWeeks.bars(history, tool: tool, scope: scope, now: now) }
+    /// Scoped weekly limits a tool has (e.g. ["fable"]).
+    func scopes(_ tool: Tool) -> [String] {
+        history.kinds(for: tool, now: now).compactMap(\.scope)
+    }
 
     // MARK: Spend
 
@@ -192,9 +223,15 @@ final class AppModel {
         SpendSummary(spendRows(tool: tool, interval), prices: prices)
     }
 
-    /// API-equivalent cost of a limit window so far (hour resolution).
-    func windowSpend(_ tool: Tool, from start: Date, to end: Date) -> SpendSummary {
-        spendSummary(tool: tool, DateInterval(start: start, end: max(start, min(end, now.addingTimeInterval(3600)))))
+    /// API-equivalent cost of a limit window so far (hour resolution); for a scoped limit, just its models.
+    /// How much of a scoped limit (Fable) a dollar of its usage takes, for the estimate.
+    func calibration(_ tool: Tool, scope: String) -> ScopedEstimate.Calibration? {
+        ScopedEstimate.calibration(history: recorded, spend: spend, prices: prices, tool: tool, scope: scope, now: now)
+    }
+
+    func windowSpend(_ tool: Tool, scope: String? = nil, from start: Date, to end: Date) -> SpendSummary {
+        let rows = spendRows(tool: tool, DateInterval(start: start, end: max(start, min(end, now.addingTimeInterval(3600)))))
+        return SpendSummary(rows.filter { scope == nil || $0.model.lowercased().contains(scope!) }, prices: prices)
     }
     func plan(_ tool: Tool) -> String? { history.plan(for: tool).map { "\($0.capitalized) plan" } }
     func lastSeen(_ tool: Tool) -> Date? { history.lastSeen(tool) }
