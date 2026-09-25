@@ -124,8 +124,8 @@ public struct ClaudeUsageAPI: Sendable {
                                    newestScopedReading: Date?, backoffUntil: Date?) -> Bool {
         if let backoffUntil, now < backoffUntil { return false }
         let recent = { (d: Date?) in d.map { now.timeIntervalSince($0) <= 30 * 60 } ?? false }
-        // The status line runs within a second of each response it sees; allow for slow scripts.
-        let unreported = recent(lastResponse) && lastResponse! > (lastStatusLine ?? .distantPast).addingTimeInterval(120)
+        // The status line reports within a second or two of each response it sees.
+        let unreported = recent(lastResponse) && lastResponse! > (lastStatusLine ?? .distantPast).addingTimeInterval(10)
         if let lastCheck, now.timeIntervalSince(lastCheck) < (unreported ? 5 : 30) * 60 { return false }
         let stale = newestScopedReading.map { now.timeIntervalSince($0) > 6 * 3600 } ?? true
         return recent(lastResponse) || recent(lastStatusLine) || stale

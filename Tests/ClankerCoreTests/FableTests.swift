@@ -258,12 +258,47 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         #expect(!should(lastCheck: 4, response: 1, statusLine: nil))
         // Subagents answering while the main session's status line last ran 20 minutes ago.
         #expect(should(lastCheck: 6, response: 0.5, statusLine: 20))
-        // The status line kept up (within its grace period): back to every 30 minutes.
-        #expect(!should(lastCheck: 6, response: 1, statusLine: 1.5))
-        #expect(should(lastCheck: 31, response: 1, statusLine: 1.5))
+        // A desktop session answered shortly after a terminal session's status line ran, then went quiet.
+        #expect(should(lastCheck: 6, response: 10, statusLine: 10.5))
+        // The status line kept up (reporting within seconds): back to every 30 minutes.
+        #expect(!should(lastCheck: 6, response: 1, statusLine: 1 + 5 / m))
+        #expect(!should(lastCheck: 6, response: 1, statusLine: 0.9))
+        #expect(should(lastCheck: 31, response: 1, statusLine: 0.9))
         // Idle for over 30 minutes, or backing off after errors: no quick checks.
         #expect(!should(lastCheck: 6, response: 40, statusLine: nil))
         #expect(!should(lastCheck: 6, response: 1, statusLine: nil, backoff: 30))
+    }
+
+    /// The newest response counts even when it was read in the first full read, or before a restart.
+    @Test func theEngineKeepsCheckingWhileResponsesGoUnreported() async throws {
+        let root = try tempDir()
+        let paths = AppPaths(support: root.appending(path: "data"), codexHome: root.appending(path: "codex"),
+                             claudeHome: root.appending(path: "claude"), claudeJSON: root.appending(path: "none.json"))
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let line = #"{"type":"assistant","timestamp":"\#(iso.string(from: now.addingTimeInterval(-60)))","requestId":"req_1","message":{"id":"msg_1","model":"claude-opus-5","usage":{"input_tokens":3,"output_tokens":20}}}"#
+        let subagents = paths.claudeProjects.appending(path: "p/session/subagents")
+        try FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+        try (line + "\n").write(to: subagents.appending(path: "agent-1.jsonl"), atomically: true, encoding: .utf8)
+
+        let calls = Calls()
+        let engine = Engine(paths: paths, downloadsPrices: false, usageAPI: api(expires: nil, calls: calls))
+        await engine.start(watch: false)
+        await engine.setUsageChecks(enabled: true)
+        #expect(calls.count == 1)
+        await engine.checkUsageIfDue(now: now.addingTimeInterval(4 * 60))
+        #expect(calls.count == 1)
+        await engine.checkUsageIfDue(now: now.addingTimeInterval(6 * 60))
+        #expect(calls.count == 2)
+        await engine.flush()
+
+        let restarted = Engine(paths: paths, downloadsPrices: false, usageAPI: api(expires: nil, calls: calls))
+        await restarted.start(watch: false)
+        await restarted.setUsageChecks(enabled: true)
+        #expect(calls.count == 2)
+        await restarted.checkUsageIfDue(now: now.addingTimeInterval(12 * 60))
+        #expect(calls.count == 3)
     }
 
     @Test func theEngineChecksOnceWhenEnabled() async throws {

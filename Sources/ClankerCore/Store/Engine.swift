@@ -39,6 +39,8 @@ struct EngineState: Codable, Sendable {
     var usageCheckAt: Date?
     var usageBackoffUntil: Date?
     var usageCheckOutcome: String?
+    /// The newest Claude Code response counted from its transcripts (main sessions and subagents).
+    var lastClaudeResponse: Date?
 
     init() {}
 
@@ -58,6 +60,7 @@ struct EngineState: Codable, Sendable {
         usageCheckAt = try c.decodeIfPresent(Date.self, forKey: .usageCheckAt)
         usageBackoffUntil = try c.decodeIfPresent(Date.self, forKey: .usageBackoffUntil)
         usageCheckOutcome = try c.decodeIfPresent(String.self, forKey: .usageCheckOutcome)
+        lastClaudeResponse = try c.decodeIfPresent(Date.self, forKey: .lastClaudeResponse)
     }
 }
 
@@ -88,8 +91,6 @@ public actor Engine {
     /// Opt-in checks with Anthropic's usage endpoint (see `ClaudeUsageAPI`).
     private var usageChecksEnabled = false
     private let usageAPI: ClaudeUsageAPI
-    /// The newest Claude Code response counted from its transcripts (main sessions and subagents).
-    private var lastClaudeActivity: Date?
 
     public init(paths: AppPaths = .standard, downloadsPrices: Bool = true, usageAPI: ClaudeUsageAPI = ClaudeUsageAPI()) {
         self.paths = paths
@@ -147,7 +148,7 @@ public actor Engine {
     public func checkUsageIfDue(now: Date = Date()) async {
         guard usageChecksEnabled, backfill == nil else { return }
         let newestScoped = history.windows.filter { $0.tool == .claude && $0.scope != nil }.map(\.lastSeen).max()
-        guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastResponse: lastClaudeActivity,
+        guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastResponse: state.lastClaudeResponse,
                                          lastStatusLine: history.heartbeats[Tool.claude.rawValue],
                                          newestScopedReading: newestScoped, backoffUntil: state.usageBackoffUntil)
         else { return }
@@ -311,8 +312,8 @@ public actor Engine {
     }
 
     private func count(_ events: [UsageEvent]) {
-        if backfill == nil, let latest = events.filter({ $0.tool == .claude }).map(\.t).max() {
-            lastClaudeActivity = max(lastClaudeActivity ?? .distantPast, latest)
+        if let latest = events.filter({ $0.tool == .claude }).map(\.t).max() {
+            state.lastClaudeResponse = max(state.lastClaudeResponse ?? .distantPast, latest)
         }
         for var e in events {
             let output = UInt32(clamping: e.tokens.output)
