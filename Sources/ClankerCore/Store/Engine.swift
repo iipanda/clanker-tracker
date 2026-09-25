@@ -88,7 +88,7 @@ public actor Engine {
     /// Opt-in checks with Anthropic's usage endpoint (see `ClaudeUsageAPI`).
     private var usageChecksEnabled = false
     private let usageAPI: ClaudeUsageAPI
-    /// When Claude Code was last seen in use (a counted response or a status line update).
+    /// The newest Claude Code response counted from its transcripts (main sessions and subagents).
     private var lastClaudeActivity: Date?
 
     public init(paths: AppPaths = .standard, downloadsPrices: Bool = true, usageAPI: ClaudeUsageAPI = ClaudeUsageAPI()) {
@@ -147,8 +147,8 @@ public actor Engine {
     public func checkUsageIfDue(now: Date = Date()) async {
         guard usageChecksEnabled, backfill == nil else { return }
         let newestScoped = history.windows.filter { $0.tool == .claude && $0.scope != nil }.map(\.lastSeen).max()
-        let activity = [lastClaudeActivity, history.heartbeats[Tool.claude.rawValue]].compactMap { $0 }.max()
-        guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastClaudeActivity: activity,
+        guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastResponse: lastClaudeActivity,
+                                         lastStatusLine: history.heartbeats[Tool.claude.rawValue],
                                          newestScopedReading: newestScoped, backoffUntil: state.usageBackoffUntil)
         else { return }
         state.usageCheckAt = now

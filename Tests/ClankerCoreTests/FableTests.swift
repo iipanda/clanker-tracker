@@ -227,9 +227,11 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
 
     @Test func checksAtMostEveryThirtyMinutesAndOnlyWhenUseful() {
         let m = 60.0
+        // Times in minutes ago; activity is reported by the status line at the same moment.
         func should(lastCheck: Double?, activity: Double?, scoped: Double?, backoff: Double? = nil) -> Bool {
             ClaudeUsageAPI.shouldCheck(now: now, lastCheck: lastCheck.map { now.addingTimeInterval(-$0 * m) },
-                                       lastClaudeActivity: activity.map { now.addingTimeInterval(-$0 * m) },
+                                       lastResponse: activity.map { now.addingTimeInterval(-$0 * m) },
+                                       lastStatusLine: activity.map { now.addingTimeInterval(-$0 * m) },
                                        newestScopedReading: scoped.map { now.addingTimeInterval(-$0 * m) },
                                        backoffUntil: backoff.map { now.addingTimeInterval($0 * m) })
         }
@@ -239,6 +241,29 @@ private func usageJSON(session: Double = 5, weekly: Double = 6, fable: Double = 
         #expect(should(lastCheck: 40, activity: 120, scoped: 7 * 60))
         #expect(should(lastCheck: nil, activity: nil, scoped: nil))
         #expect(!should(lastCheck: nil, activity: 1, scoped: nil, backoff: 30))
+    }
+
+    /// Desktop app, IDE and Agent SDK sessions don't run the status line, and a terminal session doesn't
+    /// re-run it while subagents work, so their responses go unreported until the next check.
+    @Test func checksEveryFiveMinutesWhileResponsesGoUnreported() {
+        let m = 60.0
+        func should(lastCheck: Double, response: Double?, statusLine: Double?, backoff: Double? = nil) -> Bool {
+            ClaudeUsageAPI.shouldCheck(now: now, lastCheck: now.addingTimeInterval(-lastCheck * m),
+                                       lastResponse: response.map { now.addingTimeInterval(-$0 * m) },
+                                       lastStatusLine: statusLine.map { now.addingTimeInterval(-$0 * m) },
+                                       newestScopedReading: now, backoffUntil: backoff.map { now.addingTimeInterval($0 * m) })
+        }
+        // No status line at all (e.g. only the desktop app is used).
+        #expect(should(lastCheck: 6, response: 1, statusLine: nil))
+        #expect(!should(lastCheck: 4, response: 1, statusLine: nil))
+        // Subagents answering while the main session's status line last ran 20 minutes ago.
+        #expect(should(lastCheck: 6, response: 0.5, statusLine: 20))
+        // The status line kept up (within its grace period): back to every 30 minutes.
+        #expect(!should(lastCheck: 6, response: 1, statusLine: 1.5))
+        #expect(should(lastCheck: 31, response: 1, statusLine: 1.5))
+        // Idle for over 30 minutes, or backing off after errors: no quick checks.
+        #expect(!should(lastCheck: 6, response: 40, statusLine: nil))
+        #expect(!should(lastCheck: 6, response: 1, statusLine: nil, backoff: 30))
     }
 
     @Test func theEngineChecksOnceWhenEnabled() async throws {

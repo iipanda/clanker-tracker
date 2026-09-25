@@ -111,8 +111,8 @@ struct SettingsView: View {
             Text(error).font(.caption).foregroundStyle(Palette.warn)
         }
         Toggle(isOn: Binding(get: { model.settings.checkUsage }, set: { model.setUsageChecks($0) })) {
-            Text("Check limits with Anthropic, at most every 30 minutes")
-            Text("Reads your Fable limit (and the others while Claude Code is idle) the way /usage does, using Claude Code's login from your Keychain. If macOS asks, choose Always Allow. Between checks, Fable is estimated from your Fable usage.")
+            Text("Check limits with Anthropic")
+            Text("Reads your limits the way /usage does, using Claude Code's login from your Keychain. Checks every 5 minutes while Claude Code works where the status line can't report (the desktop app, IDE extensions, apps built on the Agent SDK, subagents), otherwise at most every 30 minutes. If macOS asks, choose Always Allow. Between checks, Fable is estimated from your Fable usage.")
         }
         if model.settings.checkUsage, let check = model.usageCheck {
             Text(usageCheckText(check)).font(.caption).foregroundStyle(check.outcome == "updated" ? Palette.ok : .secondary)

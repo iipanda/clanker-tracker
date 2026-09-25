@@ -112,15 +112,23 @@ public struct ClaudeUsageAPI: Sendable {
         return process.terminationStatus == 0 && process.terminationReason == .exit ? data : nil
     }
 
-    /// Whether to check now: at most every 30 minutes, only while Claude Code is in use or when the
-    /// newest scoped reading (e.g. Fable) is over 6 hours old, and never during a backoff after errors.
-    public static func shouldCheck(now: Date, lastCheck: Date?, lastClaudeActivity: Date?, newestScopedReading: Date?,
-                                   backoffUntil: Date?) -> Bool {
+    /// Whether to check now: every 5 minutes while Claude Code is answering but its status line isn't
+    /// reporting (the desktop app, IDE extensions and Agent SDK apps don't run it, and a terminal session
+    /// doesn't re-run it while it waits on subagents); otherwise at most every 30 minutes, only while
+    /// Claude Code is in use or when the newest scoped reading (e.g. Fable) is over 6 hours old. Never
+    /// during a backoff after errors.
+    ///
+    /// `lastResponse` is the newest response in Claude Code's transcripts, subagents included;
+    /// `lastStatusLine` is when the status line last reported limits.
+    public static func shouldCheck(now: Date, lastCheck: Date?, lastResponse: Date?, lastStatusLine: Date?,
+                                   newestScopedReading: Date?, backoffUntil: Date?) -> Bool {
         if let backoffUntil, now < backoffUntil { return false }
-        if let lastCheck, now.timeIntervalSince(lastCheck) < 30 * 60 { return false }
-        let active = lastClaudeActivity.map { now.timeIntervalSince($0) <= 30 * 60 } ?? false
+        let recent = { (d: Date?) in d.map { now.timeIntervalSince($0) <= 30 * 60 } ?? false }
+        // The status line runs within a second of each response it sees; allow for slow scripts.
+        let unreported = recent(lastResponse) && lastResponse! > (lastStatusLine ?? .distantPast).addingTimeInterval(120)
+        if let lastCheck, now.timeIntervalSince(lastCheck) < (unreported ? 5 : 30) * 60 { return false }
         let stale = newestScopedReading.map { now.timeIntervalSince($0) > 6 * 3600 } ?? true
-        return active || stale
+        return recent(lastResponse) || recent(lastStatusLine) || stale
     }
 
     /// How long to wait after an outcome before trying again, beyond the usual 30 minutes. A rate limit
