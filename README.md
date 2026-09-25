@@ -7,7 +7,7 @@ used, projects your current pace forward, and warns you before you run out. It a
 your usage would cost at API list prices, like [ccusage](https://github.com/ryoppippi/ccusage), and
 keeps that history so you can compare days, weeks and months. Everything is computed on your Mac
 from files that are already there. It downloads a public price list once a day, and, if you turn it
-on, checks your Claude limits with Anthropic at most every 30 minutes.
+on, checks your Claude limits with Anthropic every 5 to 30 minutes.
 
 <p align="center">
   <picture>
@@ -130,7 +130,7 @@ is within about 1% overall, the difference coming from how forked sub-agent sess
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |
-| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. Token usage comes from its transcripts in `~/.claude/projects`. | While Claude Code is running. |
+| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. Token usage comes from its transcripts in `~/.claude/projects`. | After each response in a terminal session. The desktop app, IDE extensions and apps built on the Agent SDK don't run the status line, and a terminal session doesn't re-run it while it waits on subagents; turn on [usage checks](#fable-weekly-limit) to cover those. |
 
 - **Codex**: the app tracks the main `codex` limit. The first launch reads all existing logs once
   (about 30 s for ~20 GB); after that it reads just the new lines as files grow.
@@ -173,8 +173,10 @@ For fresher readings, turn on **Settings → Data sources → Claude Code → Ch
 Anthropic**. The app then asks Anthropic for your current limits, the same request Claude Code's
 `/usage` makes, using Claude Code's login from your Keychain:
 
-- It checks at most every 30 minutes, while you're using Claude Code or when the last Fable reading
-  is more than 6 hours old. After an error it waits an hour, and after a rate limit it waits as long
+- It checks every 5 minutes while Claude Code answers but the status line doesn't report: sessions
+  in the desktop app, IDE extensions or apps built on the Agent SDK, and subagents working while the
+  main session waits. Otherwise it checks at most every 30 minutes, while you're using Claude Code or
+  when the last Fable reading is more than 6 hours old. After an error it waits an hour, and after a rate limit it waits as long
   as Anthropic asks.
 - It reads the "Claude Code-credentials" Keychain item with `/usr/bin/security`, the same tool
   Claude Code uses to save it, so access carries over as Claude Code updates the item. If macOS asks,
