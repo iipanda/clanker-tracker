@@ -164,7 +164,7 @@ if arguments.contains("--explain") {
 }
 
 if arguments.contains("--install-collector") || arguments.contains("--remove-collector") {
-    // Same as Install / Remove in Settings → Data sources.
+    // Same as Install / Remove in Settings → Claude Code.
     let paths = AppPaths.standard
     let (settings, managed) = (paths.claudeSettings, paths.claudeManagedScript)
     do {

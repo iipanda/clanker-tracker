@@ -114,7 +114,7 @@ struct BurnChart: View {
             AxisMarks(values: xTicks) { value in
                 AxisValueLabel(centered: false) {
                     if let d = value.as(Date.self) {
-                        Text(isShort ? d.formatted(.dateTime.hour()) : Fmt.weekday(d))
+                        Text(isShort ? d.formatted(.dateTime.hour()) : isLong ? Fmt.monthDay(d) : Fmt.weekday(d))
                     }
                 }
             }
@@ -124,13 +124,24 @@ struct BurnChart: View {
         .accessibilityLabel(accessibilityText)
     }
 
-    /// Noon of each day for weekly windows (the label sits in the middle of its day), each hour for short ones.
+    /// Too long for a label per day: monthly windows get one per week instead.
+    private var isLong: Bool { end.timeIntervalSince(start) > 8 * 86400 }
+
+    /// Each hour for short windows, noon of each day for weekly ones (the label sits in the middle of
+    /// its day), and the start of each week for longer ones.
     private var xTicks: [Date] {
         let cal = Calendar.current
         var out: [Date] = []
         if isShort {
             guard var d = cal.nextDate(after: start, matching: DateComponents(minute: 0), matchingPolicy: .nextTime) else { return [] }
             while d < end { out.append(d); d = d.addingTimeInterval(3600) }
+        } else if isLong {
+            let weekStart = DateComponents(hour: 0, weekday: cal.firstWeekday)
+            guard var d = cal.nextDate(after: start, matching: weekStart, matchingPolicy: .nextTime) else { return [] }
+            while d < end {
+                out.append(d)
+                d = cal.date(byAdding: .day, value: 7, to: d) ?? end
+            }
         } else {
             guard var d = cal.nextDate(after: start, matching: DateComponents(hour: 12), matchingPolicy: .nextTime) else { return [] }
             while d < end {

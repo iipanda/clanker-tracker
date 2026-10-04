@@ -78,7 +78,7 @@ final class AppSettings {
         var title: String {
             switch self {
             case .tightest: "Tightest limit"
-            case .both: "Both tools"
+            case .both: "All tools"
             case .icon: "Icon only"
             }
         }
@@ -93,13 +93,18 @@ final class AppSettings {
     var notifyReset: Bool { didSet { defaults.set(notifyReset, forKey: "notifyReset") } }
     var notifySpikes: Bool { didSet { defaults.set(notifySpikes, forKey: "notifySpikes") } }
     var refreshSeconds: Int { didSet { defaults.set(refreshSeconds, forKey: "refreshSeconds") } }
-    /// Opt-in: check limits with Anthropic using Claude Code's login (for Fable and when Claude Code is idle).
+    /// On by default: check limits with Anthropic using Claude Code's login (for Fable and when Claude Code is idle).
     var checkUsage: Bool { didSet { defaults.set(checkUsage, forKey: "checkUsage") } }
+    /// On by default: check Cursor Agent plan usage and spend using the agent CLI login from the Keychain.
+    var checkCursorUsage: Bool { didSet { defaults.set(checkCursorUsage, forKey: "checkCursorUsage") } }
+    /// Opt-in: the Grok Bot weekly limit, and Grok Bot requests in spend.
+    var trackGrokBot: Bool { didSet { defaults.set(trackGrokBot, forKey: "trackGrokBot") } }
 
     init() {
         defaults.register(defaults: [
             "menuBarMode": MenuBarMode.tightest.rawValue, "notifyRunout": true, "notifyThreshold": true,
-            "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60, "checkUsage": false,
+            "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60,
+            "checkUsage": true, "checkCursorUsage": true, "trackGrokBot": false,
         ])
         menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .tightest
         notifyRunout = defaults.bool(forKey: "notifyRunout")
@@ -109,6 +114,8 @@ final class AppSettings {
         notifySpikes = defaults.bool(forKey: "notifySpikes")
         refreshSeconds = max(15, defaults.integer(forKey: "refreshSeconds"))
         checkUsage = defaults.bool(forKey: "checkUsage")
+        checkCursorUsage = defaults.bool(forKey: "checkCursorUsage")
+        trackGrokBot = defaults.bool(forKey: "trackGrokBot")
     }
 
     var notificationPrefs: NotificationPrefs {
@@ -123,8 +130,12 @@ final class AppModel {
     /// reported readings (see `ScopedEstimate`).
     private(set) var history = UsageHistory()
     @ObservationIgnored private var recorded = UsageHistory()
+    /// As the engine has them, before leaving out what isn't tracked (Grok Bot).
+    @ObservationIgnored private var engineHistory = UsageHistory()
+    @ObservationIgnored private var engineSpend = SpendLedger()
     @ObservationIgnored private var estimatedAt = Date.distantPast
     private(set) var usageCheck: UsageCheck?
+    private(set) var cursorUsageCheck: UsageCheck?
     private(set) var backfill: BackfillProgress?
     private(set) var spend = SpendLedger()
     private(set) var prices = PriceTable.bundled
@@ -150,30 +161,34 @@ final class AppModel {
     func start() {
         refreshHookState()
         if isDemo {
-            recorded = DemoData.history(now: now)
-            spend = DemoData.spend(now: now)
-            updateEstimates()
+            engineHistory = DemoData.history(now: now)
+            engineSpend = DemoData.spend(now: now)
+            applyTracking()
             hasLoaded = true
             return
         }
         tasks.append(Task { [weak self, engine] in
             for await update in engine.updates {
                 guard let self else { return }
-                self.recorded = update.history
+                self.engineHistory = update.history
+                self.engineSpend = update.spend
                 self.backfill = update.backfill
-                self.spend = update.spend
                 self.prices = update.prices
                 self.usageCheck = update.usageCheck
+                self.cursorUsageCheck = update.cursorUsageCheck
                 self.hasLoaded = true
                 self.now = Date()
-                self.updateEstimates()
+                self.applyTracking()
                 self.onUpdate?(update.backfill != nil)
             }
         })
         let checkUsage = settings.checkUsage
+        let checkCursor = settings.checkCursorUsage
+        let grokBot = settings.trackGrokBot
         tasks.append(Task { [engine] in
             await engine.start()
             await engine.setUsageChecks(enabled: checkUsage)
+            await engine.setCursorChecks(enabled: checkCursor, grokBot: grokBot)
         })
         tasks.append(Task { [weak self] in
             while !Task.isCancelled {
@@ -196,6 +211,35 @@ final class AppModel {
         settings.checkUsage = enabled
         guard !isDemo else { return }
         Task { [engine] in await engine.setUsageChecks(enabled: enabled) }
+    }
+
+    func setCursorChecks(_ enabled: Bool) {
+        settings.checkCursorUsage = enabled
+        guard !isDemo else { return }
+        let grokBot = settings.trackGrokBot
+        Task { [engine] in await engine.setCursorChecks(enabled: enabled, grokBot: grokBot) }
+    }
+
+    func setTrackGrokBot(_ enabled: Bool) {
+        settings.trackGrokBot = enabled
+        if let id = browsing[.cursor], history.windows.contains(where: { $0.id == id && $0.scope == CursorUsageAPI.grokBotScope }) {
+            browsing[.cursor] = nil
+        }
+        applyTracking()
+        guard !isDemo else { return }
+        let checks = settings.checkCursorUsage
+        Task { [engine] in await engine.setCursorChecks(enabled: checks, grokBot: enabled) }
+    }
+
+    /// The engine's data without the Grok Bot limit and Grok Bot spend unless they're tracked.
+    private func applyTracking() {
+        recorded = engineHistory
+        spend = engineSpend
+        if !settings.trackGrokBot {
+            recorded.windows.removeAll { $0.tool == .cursor && $0.scope == CursorUsageAPI.grokBotScope }
+            spend = engineSpend.filter { !($0.tool == .cursor && CursorUsageAPI.isGrokBotModel($0.model)) }
+        }
+        updateEstimates()
     }
 
     private func updateEstimates() {
@@ -255,7 +299,20 @@ final class AppModel {
 
     func windowSpend(_ tool: Tool, scope: String? = nil, from start: Date, to end: Date) -> SpendSummary {
         let rows = spendRows(tool: tool, DateInterval(start: start, end: max(start, min(end, now.addingTimeInterval(3600)))))
-        return SpendSummary(rows.filter { scope == nil || $0.model.lowercased().contains(scope!) }, prices: prices)
+        let filtered = rows.filter { row in
+            guard let scope else { return true }
+            if tool == .cursor {
+                switch scope {
+                case "auto": return CursorUsageAPI.isAutoModel(row.model, autoModels: recorded.cursorAutoModels)
+                case "other": return !CursorUsageAPI.isAutoModel(row.model, autoModels: recorded.cursorAutoModels)
+                    && !CursorUsageAPI.isGrokBotModel(row.model)
+                case CursorUsageAPI.grokBotScope: return CursorUsageAPI.isGrokBotModel(row.model)
+                default: break
+                }
+            }
+            return row.model.lowercased().contains(scope)
+        }
+        return SpendSummary(filtered, prices: prices)
     }
     func plan(_ tool: Tool) -> String? { history.plan(for: tool).map { "\($0.capitalized) plan" } }
     func lastSeen(_ tool: Tool) -> Date? { history.lastSeen(tool) }

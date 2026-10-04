@@ -1,13 +1,13 @@
 # Clanker Tracker
 
-**A macOS menu bar app that tells you whether your Claude Code and Codex limits will last until they reset.**
+**A macOS menu bar app that tells you whether your Claude Code, Codex, and Cursor Agent limits will last until they reset.**
 
-It reads the limit data both tools already keep on your Mac, shows how much of each limit you've
-used, projects your current pace forward, and warns you before you run out. It also works out what
-your usage would cost at API list prices, like [ccusage](https://github.com/ryoppippi/ccusage), and
-keeps that history so you can compare days, weeks and months. Everything is computed on your Mac
-from files that are already there. It downloads a public price list once a day, and, if you turn it
-on, checks your Claude limits with Anthropic every 5 to 30 minutes.
+It reads the limit data Claude Code and Codex already keep on your Mac and Cursor Agent's usage
+from Cursor, shows how much of each limit you've used, projects your current pace forward, and warns
+you before you run out. It also works out what your usage would cost at API list prices, like
+[ccusage](https://github.com/ryoppippi/ccusage), and keeps that history so you can compare days,
+weeks and months. It downloads a public price list once a day, checks your Claude limits with
+Anthropic every 5 to 30 minutes, and checks Cursor every 15 minutes.
 
 <p align="center">
   <picture>
@@ -18,7 +18,7 @@ on, checks your Claude limits with Anthropic every 5 to 30 minutes.
 
 ## Install with an agent
 
-Paste this into Claude Code or Codex on the Mac you want to track:
+Paste this into Claude Code, Codex, or Cursor Agent on the Mac you want to track:
 
 ```text
 Install Clanker Tracker: download the latest release zip from https://github.com/iipanda/clanker-tracker with gh,
@@ -130,11 +130,12 @@ is within about 1% overall, the difference coming from how forked sub-agent sess
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |
-| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. Token usage comes from its transcripts in `~/.claude/projects`. | After each response in a terminal session. The desktop app, IDE extensions and apps built on the Agent SDK don't run the status line, and a terminal session doesn't re-run it while it waits on subagents; turn on [usage checks](#fable-weekly-limit) to cover those. |
+| **Claude Code** | Claude Code reports `rate_limits` to its status line command. The collector hooks into your status line (or sets one up) and saves them whenever they change. Token usage comes from its transcripts in `~/.claude/projects`. | After each response in a terminal session. The desktop app, IDE extensions and apps built on the Agent SDK don't run the status line, and a terminal session doesn't re-run it while it waits on subagents; [usage checks](#fable-weekly-limit) cover those. |
+| **Cursor Agent** | Cursor keeps no limits in local logs, so the app reads Auto and Other monthly usage and per-request spend from Cursor's dashboard API, using the agent login from the Keychain. Grok Bot is left out unless **Track Grok Bot** is on. | Every 15 minutes. |
 
 - **Codex**: the app tracks the main `codex` limit. The first launch reads all existing logs once
   (about 30 s for ~20 GB); after that it reads just the new lines as files grow.
-- **Claude Code**: set up the collector from **Settings → Data sources** (or with `--setup` or
+- **Claude Code**: set up the collector from **Settings → Claude Code** (or with `--setup` or
   `--install-collector`). It adapts to your status line:
 
   | Your status line | What the collector does |
@@ -169,8 +170,8 @@ The estimate continues from the last reading with that rate, shows as "≈12%", 
 it builds on. The next reading replaces it. After a weekly reset the estimate starts again from 0%,
 and a week where Fable stays unused reads 0% until the reset.
 
-For fresher readings, turn on **Settings → Data sources → Claude Code → Check limits with
-Anthropic**. The app then asks Anthropic for your current limits, the same request Claude Code's
+For fresher readings, **Settings → Claude Code → Check limits with Anthropic** asks
+Anthropic for your current limits, the same request Claude Code's
 `/usage` makes, using Claude Code's login from your Keychain:
 
 - It checks every 5 minutes while Claude Code answers but the status line doesn't report: sessions
@@ -206,7 +207,7 @@ scripts/install.sh      # build, install, run --setup; or scripts/build-app.sh t
 Then:
 
 1. Click the ring in the menu bar → **Settings…**
-2. Under **Data sources**, click **Install collector** for Claude Code (open **What changes** first to see the edit).
+2. Under **Claude Code**, click **Install** next to Status line collector (open **What changes** first to see the edit).
 3. Allow notifications when macOS asks, and turn on **Open at login** to keep it running.
 
 Or run `ClankerTracker.app/Contents/MacOS/ClankerTracker --setup` once, which handles step 2 and the login item.

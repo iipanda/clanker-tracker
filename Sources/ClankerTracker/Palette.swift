@@ -10,14 +10,25 @@ enum Palette {
     static let critNS = dynamic(light: 0xC42F2A, dark: 0xFF6B61)
     /// Second series color for Codex next to Claude Code's accent.
     static let codexNS = dynamic(light: 0x1F8AC0, dark: 0x5BB6E8)
+    /// Third series color for Cursor Agent.
+    static let cursorNS = dynamic(light: 0xC45C26, dark: 0xE8956A)
 
     static let accent = Color(nsColor: accentNS)
     static let warn = Color(nsColor: warnNS)
     static let ok = Color(nsColor: okNS)
     static let crit = Color(nsColor: critNS)
     static let codex = Color(nsColor: codexNS)
+    static let cursor = Color(nsColor: cursorNS)
     static let track = Color.primary.opacity(0.09)
     static let line = Color.primary.opacity(0.09)
+
+    static func color(for tool: Tool) -> Color {
+        switch tool {
+        case .claude: accent
+        case .codex: codex
+        case .cursor: cursor
+        }
+    }
 
     private static func dynamic(light: Int, dark: Int) -> NSColor {
         NSColor(name: nil) { appearance in

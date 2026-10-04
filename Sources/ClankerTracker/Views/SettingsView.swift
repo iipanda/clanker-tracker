@@ -47,14 +47,20 @@ struct SettingsView: View {
                 Button("Send a test notification") { notifier.sendTest() }
             }
 
-            Section("Data sources") {
-                LabeledContent {
-                    connection(model.lastSeen(.codex))
-                } label: {
-                    Text("Codex")
-                    Text("Reads limits from session logs in \(tilde(model.engine.paths.codexSessions.path))")
-                }
+            Section {
+                LabeledContent("Session logs", value: tilde(model.engine.paths.codexSessions.path))
+            } header: {
+                sourceHeader(.codex, waiting: "No readings yet")
+            }
+            Section {
                 claudeSource
+            } header: {
+                sourceHeader(.claude, waiting: "Waiting for Claude Code")
+            }
+            Section {
+                cursorSource
+            } header: {
+                sourceHeader(.cursor, waiting: model.settings.checkCursorUsage ? "Waiting for Cursor" : "Checks off")
             }
 
             Section("General") {
@@ -88,23 +94,23 @@ struct SettingsView: View {
         let paths = model.engine.paths
         switch model.collector {
         case .inScript(let script):
-            installed("Saving limits from your status line script, \(tilde(script.path)).")
+            installed("Saving limits from \(tilde(script.path)).")
         case .managed(let previous?):
-            installed("Your status line (`\(previous)`) runs through \(tilde(paths.claudeManagedScript.path)), which saves the limits first. Remove puts your previous setting back.")
+            installed("`\(previous)` runs through \(tilde(paths.claudeManagedScript.path)), which saves the limits first. Remove restores it.")
         case .managed(nil):
-            installed("Clanker Tracker provides your status line: folder · model · 5h and 7d usage. Remove turns it off again.")
+            installed("Clanker Tracker provides your status line (folder · model · 5h and 7d usage).")
         case .canPatchScript(let script):
-            setup("Claude Code reports its limits only to its status line. This adds a small block to \(tilde(script.path)) that saves them. Your status line looks the same, and a backup is kept next to the script.")
+            setup("Claude Code reports limits only to its status line. This adds a small block to \(tilde(script.path)) that saves them; your status line looks the same.")
         case .canWrap(let command):
-            setup("Claude Code reports its limits only to its status line. Your status line command (`\(command)`) keeps working: it will run through a small script that saves the limits first, then prints exactly what your command prints.")
+            setup("Claude Code reports limits only to its status line. `\(command)` keeps working, run through a small script that saves the limits first.")
         case .canCreate:
-            setup("Claude Code reports its limits only to its status line, and you don't have one yet. This sets up a simple one, showing folder · model · 5h and 7d usage, that also saves the limits.")
+            setup("Claude Code reports limits only to its status line, and you don't have one yet. This sets up a simple one (folder · model · 5h and 7d usage).")
         case .settingsUnreadable:
             LabeledContent {
                 Button("Check again") { model.refreshHookState() }.controlSize(.small)
             } label: {
-                Text("Claude Code")
-                Text("~/.claude/settings.json isn't valid JSON, so Clanker Tracker won't change it. Fix the file, then check again.")
+                Text("Status line collector")
+                Text("~/.claude/settings.json isn't valid JSON, so Clanker Tracker won't change it.")
             }
         }
         if let error = model.hookError {
@@ -112,10 +118,33 @@ struct SettingsView: View {
         }
         Toggle(isOn: Binding(get: { model.settings.checkUsage }, set: { model.setUsageChecks($0) })) {
             Text("Check limits with Anthropic")
-            Text("Reads your limits the way /usage does, using Claude Code's login from your Keychain. Checks every 5 minutes while Claude Code works where the status line can't report (the desktop app, IDE extensions, apps built on the Agent SDK, subagents), otherwise at most every 30 minutes. If macOS asks, choose Always Allow. Between checks, Fable is estimated from your Fable usage.")
+            Text("Keeps Fable current and covers the desktop app, IDE extensions and subagents. Uses Claude Code's login from your Keychain; if macOS asks, choose Always Allow.")
         }
-        if model.settings.checkUsage, let check = model.usageCheck {
-            Text(usageCheckText(check)).font(.caption).foregroundStyle(check.outcome == "updated" ? Palette.ok : .secondary)
+        if model.settings.checkUsage, let check = model.usageCheck, check.outcome != "updated" {
+            Text(usageCheckText(check)).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var cursorSource: some View {
+        Toggle(isOn: Binding(get: { model.settings.checkCursorUsage }, set: { model.setCursorChecks($0) })) {
+            Text("Check limits and spend with Cursor")
+            Text("Every 15 minutes, using the `agent login` from your Keychain; if macOS asks, choose Always Allow.")
+        }
+        if model.settings.checkCursorUsage, let check = model.cursorUsageCheck, check.outcome != "updated" {
+            Text(cursorCheckText(check)).font(.caption).foregroundStyle(.secondary)
+        }
+        Toggle(isOn: Binding(get: { model.settings.trackGrokBot }, set: { model.setTrackGrokBot($0) })) {
+            Text("Track Grok Bot")
+            Text("Its weekly limit and its requests in spend.")
+        }
+        .disabled(!model.settings.checkCursorUsage)
+    }
+
+    private func sourceHeader(_ tool: Tool, waiting: String) -> some View {
+        HStack {
+            Text(tool.displayName)
+            Spacer()
+            connection(model.lastSeen(tool), waiting: waiting)
         }
     }
 
@@ -129,23 +158,30 @@ struct SettingsView: View {
         }
     }
 
+    private func cursorCheckText(_ c: UsageCheck) -> String {
+        let when = Fmt.ago(model.now.timeIntervalSince(c.at))
+        switch c.outcome {
+        case "updated": return "Last checked \(when)"
+        case "noLogin": return "Checked \(when): Cursor Agent's login isn't available (run `agent login`, or allow Keychain access)"
+        case "loginExpired": return "Checked \(when): Cursor Agent's login needs refreshing; sign in again with `agent login`"
+        default: return "Checked \(when): Cursor didn't answer (\(c.outcome)); trying again later"
+        }
+    }
+
     private func installed(_ detail: String) -> some View {
         LabeledContent {
-            HStack(spacing: 10) {
-                connection(model.lastSeen(.claude), waiting: "Waiting for Claude Code")
-                Button("Remove") { model.uninstallHook() }.controlSize(.small)
-            }
+            Button("Remove") { model.uninstallHook() }.controlSize(.small)
         } label: {
-            Text("Claude Code")
-            Text(detail + " Updates while Claude Code runs.")
+            Text("Status line collector")
+            Text(detail)
         }
     }
 
     @ViewBuilder private func setup(_ detail: String) -> some View {
         LabeledContent {
-            Button("Install collector") { model.installHook() }
+            Button("Install") { model.installHook() }
         } label: {
-            Text("Claude Code")
+            Text("Status line collector")
             Text(detail)
         }
         if let change = model.plannedCollectorChange {

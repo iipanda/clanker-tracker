@@ -1,7 +1,7 @@
 import Foundation
 
 /// Asks Anthropic for your current Claude limits, the way Claude Code's `/usage` does, using Claude
-/// Code's own login from the Keychain. Opt-in and infrequent (see `shouldCheck`). It uses the login
+/// Code's own login from the Keychain. On by default and infrequent (see `shouldCheck`). It uses the login
 /// token as is and leaves refreshing it to Claude Code (a refresh would rotate Claude Code's login), so
 /// when it has expired, the check waits for Claude Code's next refresh and reads the login again.
 public struct ClaudeUsageAPI: Sendable {

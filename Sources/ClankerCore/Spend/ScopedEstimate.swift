@@ -1,7 +1,7 @@
 import Foundation
 
 /// Keeps a scoped limit (e.g. Claude's Fable weekly limit) current between reported readings, which
-/// only arrive when Claude Code refreshes its usage cache or the opt-in usage check runs.
+/// only arrive when Claude Code refreshes its usage cache or the usage check runs.
 ///
 /// Each reported reading pairs a percentage with the API-equivalent cost of that scope's models so far
 /// in the window, which gives "percent of the limit per dollar". From the last reported reading on,
@@ -57,7 +57,8 @@ public enum ScopedEstimate {
     public static func apply(to history: UsageHistory, spend: SpendLedger, prices: PriceTable, now: Date) -> UsageHistory {
         var out = history
         let scoped = Set(history.windows.compactMap { w in w.scope.map { (w.tool, $0, w.minutes) } }.map(Key.init))
-        for key in scoped {
+        // Cursor reports every scope on each 15-minute check, so there is nothing to estimate between readings.
+        for key in scoped where key.tool != .cursor {
             guard let k = calibration(history: history, spend: spend, prices: prices, tool: key.tool, scope: key.scope, now: now)?.percentPerDollar,
                   var window = history.current(tool: key.tool, kind: .init(minutes: key.minutes, scope: key.scope))
             else { continue }

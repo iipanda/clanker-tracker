@@ -41,7 +41,7 @@ struct SpendView: View {
             WindowSwitch(options: SpendPeriod.allCases.enumerated().map { ($0.offset, $0.element.title) },
                          selection: SpendPeriod.allCases.firstIndex(of: period) ?? 1) { period = SpendPeriod.allCases[$0] }
             Spacer()
-            WindowSwitch(options: [(0, "Both")] + Tool.allCases.enumerated().map { ($0.offset + 1, $0.element.displayName) },
+            WindowSwitch(options: [(0, "All")] + Tool.allCases.enumerated().map { ($0.offset + 1, $0.element.displayName) },
                          selection: toolFilter.flatMap { Tool.allCases.firstIndex(of: $0) }.map { $0 + 1 } ?? 0) {
                 toolFilter = $0 == 0 ? nil : Tool.allCases[$0 - 1]
             }
@@ -115,7 +115,7 @@ struct SpendView: View {
         let uneven = Set(periods.map { Int($0.duration / 3600) }).count > 1
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(period == .week ? "API equivalent per weekly window" : "API equivalent per \(period.rawValue)")
+                Text(period == .week ? "Cost per weekly window" : "Cost per \(period.rawValue)")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Text("Click a bar to see that \(period.rawValue)").font(.caption).foregroundStyle(.secondary)
@@ -127,7 +127,11 @@ struct SpendView: View {
                     .opacity(bar.period == current ? 1 : 0.45)
                     .cornerRadius(2)
             }
-            .chartForegroundStyleScale([Tool.claude.displayName: Palette.accent, Tool.codex.displayName: Palette.codex])
+            .chartForegroundStyleScale([
+                Tool.claude.displayName: Palette.accent,
+                Tool.codex.displayName: Palette.codex,
+                Tool.cursor.displayName: Palette.cursor,
+            ])
             .chartXScale(domain: periods.map(key))
             .chartYAxis {
                 AxisMarks(position: .leading) { value in
@@ -194,7 +198,7 @@ struct SpendView: View {
                         Text("Cache write")
                         Text("Cache read")
                         Text("Output")
-                        Text("API equivalent")
+                        Text("Cost")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -203,7 +207,7 @@ struct SpendView: View {
                         GridRow {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.row.model + (item.row.fast ? " (fast)" : "")).font(.callout)
-                                Text(item.row.tool.displayName + (PriceTable.aliases[item.row.model].map { " · priced as \($0)" } ?? ""))
+                                Text(costSubtitle(item.row))
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             .gridColumnAlignment(.leading)
@@ -229,9 +233,21 @@ struct SpendView: View {
         Text(n == 0 ? "–" : Fmt.tokens(n)).monospacedDigit().foregroundStyle(n == 0 ? .tertiary : .primary)
     }
 
+    private func costSubtitle(_ row: ModelSpend) -> String {
+        var parts = [row.tool.displayName]
+        if row.billedUSD != nil {
+            parts.append("Cursor metered")
+        } else if let alias = PriceTable.aliases[row.model] {
+            parts.append("priced as \(alias)")
+        } else {
+            parts.append("API list")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private var footnote: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("API equivalent is what these tokens would cost at API list prices; your subscription is billed separately. Claude Code counts Claude Code sessions on this Mac.")
+            Text("Claude Code and Codex show API-list cost (subscription billed separately). Cursor Agent shows Cursor's metered cost, including the higher fast-mode rate.")
             if period == .week {
                 Text("Weeks follow \(toolFilter?.displayName ?? Tool.claude.displayName)'s weekly limit, and end early where it reset early.")
             }
@@ -243,8 +259,8 @@ struct SpendView: View {
 
     private var pricesNote: String {
         let since = model.spend.firstDate.map { " History starts \($0.formatted(date: .abbreviated, time: .omitted))." } ?? ""
-        guard let fetched = model.prices.fetchedAt else { return "Prices: built-in copy of LiteLLM's price table." + since }
-        return "Prices: LiteLLM's price table, updated \(Fmt.ago(model.now.timeIntervalSince(fetched)))." + since
+        guard let fetched = model.prices.fetchedAt else { return "Claude/Codex prices: built-in copy of LiteLLM's price table." + since }
+        return "Claude/Codex prices: LiteLLM's price table, updated \(Fmt.ago(model.now.timeIntervalSince(fetched)))." + since
     }
 }
 

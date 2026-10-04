@@ -6,14 +6,17 @@ public struct UsageEvent: Sendable, Hashable {
     public var model: String
     public var t: Date
     public var tokens: TokenCounts
-    /// Claude Code fast mode, billed at twice the standard rate.
+    /// Fast mode: Claude Code bills 2× API list prices; Cursor encodes it in the model id and in `billedUSD`.
     public var fast: Bool
     /// The request's prompt size band, for long-context pricing.
     public var context: ContextSize
     /// Identifies the response so a copy of it in another log file isn't counted twice.
     public var dedupeKey: UInt64
+    /// Cursor's own metered cost in dollars (already includes fast); when set, Spend uses this instead of LiteLLM.
+    public var billedUSD: Double?
 
-    public init(tool: Tool, model: String, t: Date, tokens: TokenCounts, fast: Bool = false, context: ContextSize = .standard, dedupeKey: UInt64) {
+    public init(tool: Tool, model: String, t: Date, tokens: TokenCounts, fast: Bool = false, context: ContextSize = .standard,
+                dedupeKey: UInt64, billedUSD: Double? = nil) {
         self.tool = tool
         self.model = model
         self.t = t
@@ -21,6 +24,7 @@ public struct UsageEvent: Sendable, Hashable {
         self.fast = fast
         self.context = context
         self.dedupeKey = dedupeKey
+        self.billedUSD = billedUSD
     }
 
     /// FNV-1a, stable across launches (Swift's Hasher isn't).
@@ -49,8 +53,20 @@ public struct SpendLedger: Codable, Sendable, Equatable {
         /// Hours since 1970 (UTC).
         public var hour: Int
         public var tokens: TokenCounts
+        /// See `UsageEvent.billedUSD`.
+        public var billedUSD: Double?
 
         public var start: Date { Date(timeIntervalSince1970: TimeInterval(hour) * 3600) }
+
+        public init(tool: Tool, model: String, fast: Bool, context: ContextSize, hour: Int, tokens: TokenCounts, billedUSD: Double? = nil) {
+            self.tool = tool
+            self.model = model
+            self.fast = fast
+            self.context = context
+            self.hour = hour
+            self.tokens = tokens
+            self.billedUSD = billedUSD
+        }
     }
 
     struct Key: Hashable {
@@ -89,9 +105,11 @@ public struct SpendLedger: Codable, Sendable, Equatable {
         let key = Key(tool: e.tool, model: e.model, fast: e.fast, context: e.context, hour: hour)
         if let i = index[key] {
             entries[i].tokens += e.tokens
+            if let b = e.billedUSD { entries[i].billedUSD = (entries[i].billedUSD ?? 0) + b }
         } else {
             index[key] = entries.count
-            entries.append(Entry(tool: e.tool, model: e.model, fast: e.fast, context: e.context, hour: hour, tokens: e.tokens))
+            entries.append(Entry(tool: e.tool, model: e.model, fast: e.fast, context: e.context, hour: hour,
+                                 tokens: e.tokens, billedUSD: e.billedUSD))
         }
     }
 
@@ -111,10 +129,18 @@ public struct SpendLedger: Codable, Sendable, Equatable {
         let key = Key(tool: e.tool, model: e.model, fast: e.fast, context: e.context, hour: e.hour)
         if let i = index[key] {
             entries[i].tokens += e.tokens
+            if let b = e.billedUSD { entries[i].billedUSD = (entries[i].billedUSD ?? 0) + b }
         } else {
             index[key] = entries.count
             entries.append(e)
         }
+    }
+
+    public func filter(_ isIncluded: (Entry) -> Bool) -> SpendLedger {
+        var out = SpendLedger()
+        out.schemaVersion = schemaVersion
+        for e in entries where isIncluded(e) { out.add(entry: e) }
+        return out
     }
 
     public var firstDate: Date? { entries.map(\.hour).min().map { Date(timeIntervalSince1970: TimeInterval($0) * 3600) } }
@@ -126,20 +152,22 @@ public struct SpendLedger: Codable, Sendable, Equatable {
         for e in entries where e.hour >= lo && e.hour < hi && (tool == nil || e.tool == tool) {
             let id = "\(e.tool.rawValue).\(e.model).\(e.fast)"
             var row = out[id] ?? ModelSpend(tool: e.tool, model: e.model, fast: e.fast)
-            row.add(e.tokens, context: e.context)
+            row.add(e.tokens, context: e.context, billedUSD: e.billedUSD)
             out[id] = row
         }
         return Array(out.values)
     }
 }
 
-/// One model's tokens over a period, and what they'd cost at API prices.
+/// One model's tokens over a period, and what they'd cost at API prices (or Cursor's metered cost).
 public struct ModelSpend: Sendable, Hashable, Identifiable {
     public let tool: Tool
     public let model: String
     public let fast: Bool
     /// Tokens per prompt-size band; long-context requests can cost more.
     public private(set) var byContext: [ContextSize: TokenCounts] = [:]
+    /// Cursor metered dollars for this row, when spend came from Cursor's dashboard rather than LiteLLM.
+    public private(set) var billedUSD: Double?
 
     public init(tool: Tool, model: String, fast: Bool) {
         self.tool = tool
@@ -150,12 +178,15 @@ public struct ModelSpend: Sendable, Hashable, Identifiable {
     public var id: String { "\(tool.rawValue).\(model).\(fast)" }
     public var tokens: TokenCounts { byContext.values.reduce(TokenCounts(), +) }
 
-    mutating func add(_ t: TokenCounts, context: ContextSize) {
+    mutating func add(_ t: TokenCounts, context: ContextSize, billedUSD: Double? = nil) {
         byContext[context, default: TokenCounts()] += t
+        if let billedUSD { self.billedUSD = (self.billedUSD ?? 0) + billedUSD }
     }
 
-    /// nil when the price table has no price for the model.
+    /// Cursor billed cost when present (already includes fast); otherwise API list price, ×2 when `fast`.
+    /// nil when the price table has no price for the model and there is no billed cost.
     public func cost(_ prices: PriceTable) -> Double? {
+        if let billedUSD { return billedUSD }
         guard let price = prices.price(for: model) else { return nil }
         return byContext.reduce(0) { $0 + price.cost($1.value, context: $1.key) } * (fast ? 2 : 1)
     }

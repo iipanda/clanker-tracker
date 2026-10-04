@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Tool: String, Codable, Sendable, CaseIterable, Identifiable {
-    case claude, codex
+    case claude, codex, cursor
 
     public var id: String { rawValue }
 
@@ -9,6 +9,7 @@ public enum Tool: String, Codable, Sendable, CaseIterable, Identifiable {
         switch self {
         case .claude: "Claude Code"
         case .codex: "Codex"
+        case .cursor: "Cursor Agent"
         }
     }
 }
@@ -76,8 +77,17 @@ public struct LimitWindow: Codable, Sendable, Hashable, Identifiable {
 
     /// Identifies the kind of limit (length and scope), e.g. "10080" or "10080.fable".
     public var kindKey: String { "\(minutes)" + (scope.map { ".\($0)" } ?? "") }
-    /// "Fable" for a scoped limit.
-    public var scopeName: String? { scope.map { $0.prefix(1).uppercased() + $0.dropFirst() } }
+    /// Display name for a scoped limit ("Fable", "Auto", "Other", "Grok Bot").
+    public var scopeName: String? {
+        switch scope {
+        case "fable": "Fable"
+        case "auto": "Auto"
+        case "other": "Other"
+        case "grok": "Grok Bot"
+        case let s?: s.prefix(1).uppercased() + s.dropFirst()
+        case nil: nil
+        }
+    }
     /// The latest reading that was reported rather than estimated.
     public var lastReported: Reading? { points.last { !$0.isEstimated } }
     public var isEstimated: Bool { points.last?.isEstimated ?? false }
@@ -94,7 +104,11 @@ public struct LimitWindow: Codable, Sendable, Hashable, Identifiable {
     }
 
     var baseLabel: String {
-        if minutes == 7 * 24 * 60 { return "Weekly" }
+        // Providers often report window lengths that aren't exact multiples (e.g. Cursor Grok Bot
+        // ~6.7 days, billing cycles ~28–31 days). Prefer the familiar name when we're close.
+        let days = Double(minutes) / Double(24 * 60)
+        if minutes == 7 * 24 * 60 || (6..<8).contains(days) { return "Weekly" }
+        if (28...31).contains(days) { return "Monthly" }
         if minutes % (24 * 60) == 0 { return "\(minutes / (24 * 60))-day" }
         if minutes % 60 == 0 { return "\(minutes / 60)-hour" }
         return "\(minutes)-minute"
@@ -106,6 +120,9 @@ public struct LimitWindow: Codable, Sendable, Hashable, Identifiable {
     /// "5h", "7d", "Fable"
     public var shortLabel: String {
         if let scopeName { return scopeName }
+        let days = Double(minutes) / Double(24 * 60)
+        if minutes == 7 * 24 * 60 || (6..<8).contains(days) { return "7d" }
+        if (28...31).contains(days) { return "30d" }
         if minutes % (24 * 60) == 0 { return "\(minutes / (24 * 60))d" }
         if minutes % 60 == 0 { return "\(minutes / 60)h" }
         return "\(minutes)m"

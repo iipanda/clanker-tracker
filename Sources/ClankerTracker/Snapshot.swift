@@ -18,11 +18,14 @@ enum Snapshot {
                 let suffix = appearance == .aqua ? "light" : "dark"
                 await render(PopoverView(model: model, open: { _ in }).background(.regularMaterial),
                              size: nil, appearance: appearance, to: dir.appending(path: "popover-\(suffix).png"))
+                await render(SettingsView(model: model), size: NSSize(width: 680, height: 1100), appearance: appearance,
+                             to: dir.appending(path: "settings-\(suffix).png"))
                 // Window chrome (sidebar, toolbar) can't be captured offscreen, so render the panes themselves.
                 let scheme: ColorScheme = appearance == .aqua ? .light : .dark
                 image(OverviewPane(model: model).frame(width: 820), scheme, to: dir.appending(path: "overview-\(suffix).png"))
                 image(ToolPane(model: model, tool: .codex).frame(width: 820), scheme, to: dir.appending(path: "codex-\(suffix).png"))
                 image(ToolPane(model: model, tool: .claude).frame(width: 820), scheme, to: dir.appending(path: "claude-\(suffix).png"))
+                image(ToolPane(model: model, tool: .cursor).frame(width: 820), scheme, to: dir.appending(path: "cursor-\(suffix).png"))
                 image(SpendView(model: model).frame(width: 820), scheme, to: dir.appending(path: "spend-\(suffix).png"))
             }
             print("Snapshots in \(dir.path)")
@@ -40,7 +43,7 @@ enum Snapshot {
     private static func render(_ view: some View, size: NSSize?, appearance: NSAppearance.Name, to url: URL) async {
         let hosting = NSHostingController(rootView: view)
         let fitting = size ?? hosting.view.fittingSize
-        let window = NSWindow(contentRect: NSRect(origin: .zero, size: fitting), styleMask: size == nil ? [.borderless] : [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: fitting), styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: appearance)
         window.contentViewController = hosting
         window.setContentSize(fitting)

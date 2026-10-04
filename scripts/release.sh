@@ -43,7 +43,7 @@ echo "Packaged $ZIP ($SIGNED, sha256 $SHA)"
 
 NOTES=build/release-notes.md
 {
-  echo "Menu bar app that forecasts whether your Claude Code and Codex limits will last until they reset."
+  echo "Menu bar app that forecasts whether your Claude Code, Codex, and Cursor Agent limits will last until they reset."
   echo "Universal build (Apple Silicon and Intel), macOS 26 or later."
   echo
   echo "## Install"
@@ -54,9 +54,9 @@ NOTES=build/release-notes.md
     echo "3. Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to Clanker Tracker, and confirm with your password. You only do this once."
     echo
     echo "   Or in Terminal: \`xattr -dr com.apple.quarantine /Applications/ClankerTracker.app\`"
-    echo "4. Click the ring in the menu bar → **Settings… → Data sources → Install collector** to track Claude Code. Codex needs no setup."
+    echo "4. Click the ring in the menu bar → **Settings… → Claude Code → Install** to track Claude Code. Codex needs no setup, and Cursor Agent only \`agent login\`."
   else
-    echo "2. Open it, then click the ring in the menu bar → **Settings… → Data sources → Install collector** to track Claude Code. Codex needs no setup."
+    echo "2. Open it, then click the ring in the menu bar → **Settings… → Claude Code → Install** to track Claude Code. Codex needs no setup, and Cursor Agent only \`agent login\`."
   fi
   echo
   echo "SHA-256: \`$SHA\`"

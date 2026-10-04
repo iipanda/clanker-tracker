@@ -13,8 +13,23 @@ public struct UsageHistory: Codable, Sendable, Equatable {
     public var plans: [String: String] = [:]
     /// Last time a source confirmed its data is current without a new reading.
     public var heartbeats: [String: Date] = [:]
+    /// Cursor's Auto / "Cursor Models" bucket (model ids from `autoBucketModels`), for spend splits.
+    public var cursorAutoModels: [String] = []
 
     public init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, windows, plans, heartbeats, cursorAutoModels
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        windows = try c.decodeIfPresent([LimitWindow].self, forKey: .windows) ?? []
+        plans = try c.decodeIfPresent([String: String].self, forKey: .plans) ?? [:]
+        heartbeats = try c.decodeIfPresent([String: Date].self, forKey: .heartbeats) ?? [:]
+        cursorAutoModels = try c.decodeIfPresent([String].self, forKey: .cursorAutoModels) ?? []
+    }
 
     public mutating func add(_ s: Sample) {
         // A reading can't predate its own window or come after it reset; the few that do are log noise.

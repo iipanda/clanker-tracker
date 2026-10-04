@@ -50,7 +50,11 @@ enum StatusText {
     static func staleness(_ f: Forecast) -> String? {
         guard f.isStale, !f.isEstimated else { return nil }
         let ago = Fmt.ago(f.now.timeIntervalSince(f.lastSeen))
-        return f.tool == .claude ? "Last reading \(ago) · updates while Claude Code runs" : "Last reading \(ago)"
+        switch f.tool {
+        case .claude: return "Last reading \(ago) · updates while Claude Code runs"
+        case .cursor: return "Last reading \(ago) · updates every 15 minutes while checks are on"
+        case .codex: return "Last reading \(ago)"
+        }
     }
 }
 
@@ -66,6 +70,10 @@ struct EmptyToolMessage: View {
                 Button("Set up collector") { model.pane = .settings }
                     .controlSize(.small)
             }
+            if tool == .cursor, !model.settings.checkCursorUsage, !compact {
+                Button("Open Settings") { model.pane = .settings }
+                    .controlSize(.small)
+            }
         }
         .font(compact ? .caption : .callout)
     }
@@ -79,6 +87,11 @@ struct EmptyToolMessage: View {
                 ? "Waiting for your next Claude Code message."
                 : compact ? "Set up the collector in Settings to track Claude Code."
                 : "Claude Code reports its limits only to its status line. Set up the collector in Settings to save them."
+        case .cursor:
+            model.settings.checkCursorUsage
+                ? (model.hasLoaded ? "Waiting for the next Cursor usage check." : "Checking Cursor…")
+                : compact ? "Turn on Cursor checks in Settings to track Cursor Agent."
+                : "Cursor Agent keeps its limits on Cursor's servers. Turn on checks in Settings to read them (uses your agent login from the Keychain)."
         }
     }
 }

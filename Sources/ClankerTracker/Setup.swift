@@ -29,6 +29,13 @@ enum Setup {
             failed = !setUpClaude(paths) || failed
         }
 
+        // Cursor Agent: limits and spend are on Cursor's servers; checked with the agent login.
+        if cursorLoginPresent {
+            print("Cursor Agent: login found. Limits and spend are checked with Cursor every 15 minutes.")
+        } else {
+            print("Cursor Agent: no agent login yet. Run `agent login`; checks start once the login is there.")
+        }
+
         if openAtLogin {
             do {
                 try LoginItem.set(true)
@@ -71,7 +78,7 @@ enum Setup {
         case .managed(nil):
             print("Claude Code: set up a status line (folder · model · 5h and 7d usage) that saves your limits.")
         default:
-            print("Claude Code: setup didn't take effect. Open Settings → Data sources.")
+            print("Claude Code: setup didn't take effect. Open Settings → Claude Code.")
             return false
         }
         if let change {
@@ -103,6 +110,21 @@ enum Setup {
 
     private static var hasJQ: Bool {
         ["/usr/bin/jq", "/opt/homebrew/bin/jq", "/usr/local/bin/jq"].contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Whether the Cursor Agent CLI has stored a login (Keychain or ~/.cursor/auth.json).
+    private static var cursorLoginPresent: Bool {
+        let sec = Process()
+        sec.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        sec.arguments = ["find-generic-password", "-s", CursorUsageAPI.keychainService, "-a", CursorUsageAPI.keychainAccount]
+        sec.standardOutput = FileHandle.nullDevice
+        sec.standardError = FileHandle.nullDevice
+        if (try? sec.run()) != nil {
+            sec.waitUntilExit()
+            if sec.terminationStatus == 0 { return true }
+        }
+        let auth = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".cursor/auth.json")
+        return FileManager.default.fileExists(atPath: auth.path)
     }
 
     static func tilde(_ path: String) -> String {

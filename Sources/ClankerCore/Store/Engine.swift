@@ -14,6 +14,8 @@ public struct EngineUpdate: Sendable {
     public var backfill: BackfillProgress?
     /// The last check with Anthropic's usage endpoint, if any.
     public var usageCheck: UsageCheck?
+    /// The last check with Cursor's dashboard API, if any.
+    public var cursorUsageCheck: UsageCheck?
 }
 
 public struct UsageCheck: Sendable, Equatable {
@@ -41,6 +43,11 @@ struct EngineState: Codable, Sendable {
     var usageCheckOutcome: String?
     /// The newest Claude Code response counted from its transcripts (main sessions and subagents).
     var lastClaudeResponse: Date?
+    var cursorCheckAt: Date?
+    var cursorBackoffUntil: Date?
+    var cursorCheckOutcome: String?
+    /// Newest Cursor spend event time already fetched; the next check overlaps by two hours.
+    var cursorSpendThrough: Date?
 
     init() {}
 
@@ -61,6 +68,10 @@ struct EngineState: Codable, Sendable {
         usageBackoffUntil = try c.decodeIfPresent(Date.self, forKey: .usageBackoffUntil)
         usageCheckOutcome = try c.decodeIfPresent(String.self, forKey: .usageCheckOutcome)
         lastClaudeResponse = try c.decodeIfPresent(Date.self, forKey: .lastClaudeResponse)
+        cursorCheckAt = try c.decodeIfPresent(Date.self, forKey: .cursorCheckAt)
+        cursorBackoffUntil = try c.decodeIfPresent(Date.self, forKey: .cursorBackoffUntil)
+        cursorCheckOutcome = try c.decodeIfPresent(String.self, forKey: .cursorCheckOutcome)
+        cursorSpendThrough = try c.decodeIfPresent(Date.self, forKey: .cursorSpendThrough)
     }
 }
 
@@ -88,14 +99,21 @@ public actor Engine {
 
     /// Whether to download prices (off in tests and headless runs).
     private let downloadsPrices: Bool
-    /// Opt-in checks with Anthropic's usage endpoint (see `ClaudeUsageAPI`).
+    /// Checks with Anthropic's usage endpoint, set from the app's settings (see `ClaudeUsageAPI`).
     private var usageChecksEnabled = false
+    /// Checks with Cursor's dashboard API, set from the app's settings (see `CursorUsageAPI`).
+    private var cursorChecksEnabled = false
+    /// Whether Cursor checks also read the Grok Bot weekly limit.
+    private var cursorGrokBot = false
     private let usageAPI: ClaudeUsageAPI
+    private let cursorAPI: CursorUsageAPI
 
-    public init(paths: AppPaths = .standard, downloadsPrices: Bool = true, usageAPI: ClaudeUsageAPI = ClaudeUsageAPI()) {
+    public init(paths: AppPaths = .standard, downloadsPrices: Bool = true,
+                usageAPI: ClaudeUsageAPI = ClaudeUsageAPI(), cursorAPI: CursorUsageAPI = CursorUsageAPI()) {
         self.paths = paths
         self.downloadsPrices = downloadsPrices
         self.usageAPI = usageAPI
+        self.cursorAPI = cursorAPI
         (updates, continuation) = AsyncStream.makeStream(of: EngineUpdate.self, bufferingPolicy: .bufferingNewest(1))
         // History and spend are the app's own record, kept after the tools delete old logs: a file
         // that can't be read is set aside rather than overwritten.
@@ -137,11 +155,18 @@ public actor Engine {
         scheduleSave()
         await refreshPricesIfNeeded()
         await checkUsageIfDue()
+        await checkCursorIfDue()
     }
 
     public func setUsageChecks(enabled: Bool) async {
         usageChecksEnabled = enabled
         if enabled { await checkUsageIfDue() }
+    }
+
+    public func setCursorChecks(enabled: Bool, grokBot: Bool) async {
+        cursorChecksEnabled = enabled
+        cursorGrokBot = grokBot
+        if enabled { await checkCursorIfDue(force: true) }
     }
 
     /// Checks limits with Anthropic when enabled and due (see `ClaudeUsageAPI.shouldCheck`).
@@ -163,6 +188,45 @@ public actor Engine {
         case .failed(let status): "failed \(status.map(String.init) ?? "network")"
         }
         log.info("Usage check: \(self.state.usageCheckOutcome ?? "")")
+        publish()
+        scheduleSave()
+    }
+
+    /// Checks Cursor plan usage and spend when enabled and due (see `CursorUsageAPI`).
+    public func checkCursorIfDue(now: Date = Date(), force: Bool = false) async {
+        guard cursorChecksEnabled, backfill == nil else { return }
+        guard CursorUsageAPI.shouldCheck(now: now, lastCheck: state.cursorCheckAt,
+                                         backoffUntil: state.cursorBackoffUntil, force: force)
+        else { return }
+        state.cursorCheckAt = now
+        // Overlap so a request that landed during the previous page isn't missed; dedupe keys drop repeats.
+        let spendFrom = state.cursorSpendThrough?.addingTimeInterval(-2 * 3600)
+        let response = await cursorAPI.fetch(now: now, spendFrom: spendFrom, grokBot: cursorGrokBot)
+        history.add(contentsOf: response.samples)
+        // Keep only Auto / Other / Grok Bot (drop the blended total if an earlier version stored it).
+        let kept: Set<String?> = ["auto", "other", CursorUsageAPI.grokBotScope]
+        if response.samples.contains(where: { $0.scope == "auto" || $0.scope == "other" }) {
+            history.windows.removeAll { $0.tool == .cursor && !kept.contains($0.scope) }
+        }
+        if let plan = response.plan { history.setPlan(plan, for: .cursor) }
+        if !response.autoModels.isEmpty { history.cursorAutoModels = response.autoModels }
+        count(response.events)
+        if case .updated = response.outcome {
+            history.heartbeat(.cursor, at: now)
+            if let newest = response.events.map(\.t).max() {
+                state.cursorSpendThrough = max(state.cursorSpendThrough ?? .distantPast, newest)
+            } else if state.cursorSpendThrough == nil, let start = response.billingCycleStart {
+                state.cursorSpendThrough = start
+            }
+        }
+        state.cursorBackoffUntil = CursorUsageAPI.backoff(after: response).map { now.addingTimeInterval($0) }
+        state.cursorCheckOutcome = switch response.outcome {
+        case .updated: "updated"
+        case .noLogin: "noLogin"
+        case .loginExpired: "loginExpired"
+        case .failed(let status): "failed \(status.map(String.init) ?? "network")"
+        }
+        log.info("Cursor check: \(self.state.cursorCheckOutcome ?? ""), events \(response.events.count)")
         publish()
         scheduleSave()
     }
@@ -469,7 +533,9 @@ public actor Engine {
 
     private func publish() {
         let check = state.usageCheckAt.map { UsageCheck(at: $0, outcome: state.usageCheckOutcome ?? "") }
-        continuation.yield(EngineUpdate(history: history, spend: spend, prices: prices, backfill: backfill, usageCheck: check))
+        let cursor = state.cursorCheckAt.map { UsageCheck(at: $0, outcome: state.cursorCheckOutcome ?? "") }
+        continuation.yield(EngineUpdate(history: history, spend: spend, prices: prices, backfill: backfill,
+                                        usageCheck: check, cursorUsageCheck: cursor))
     }
 
     private func scheduleSave() {
