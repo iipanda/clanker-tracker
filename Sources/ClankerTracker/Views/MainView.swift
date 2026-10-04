@@ -9,7 +9,7 @@ struct MainView: View {
             List(selection: $model.pane) {
                 Label("Overview", systemImage: "square.grid.2x2").tag(Pane.overview)
                 Section("Tools") {
-                    ForEach(Tool.allCases) { tool in
+                    ForEach(model.trackedTools) { tool in
                         HStack {
                             Label(tool.displayName, systemImage: "chart.line.uptrend.xyaxis")
                             Spacer()
@@ -67,9 +67,19 @@ struct OverviewPane: View {
         VStack(alignment: .leading, spacing: 28) {
             BackfillBanner(model: model)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: 16, alignment: .top)], alignment: .leading, spacing: 16) {
-                ForEach(Tool.allCases) { ToolCard(tool: $0, model: model) }
+                ForEach(model.trackedTools) { ToolCard(tool: $0, model: model) }
             }
-            PastWeeksView(model: model, tools: Tool.allCases)
+            if model.trackedTools.isEmpty {
+                ContentUnavailableView {
+                    Label("No active providers", systemImage: "chart.line.uptrend.xyaxis")
+                } description: {
+                    Text("Install an agent and enable its provider in Settings to show usage.")
+                } actions: {
+                    Button("Open Settings") { model.pane = .settings }
+                }
+            } else {
+                PastWeeksView(model: model, tools: model.trackedTools)
+            }
         }
         .padding(24)
     }

@@ -12,6 +12,10 @@ let package = Package(
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .testTarget(
+            name: "ClankerTrackerTests",
+            dependencies: ["ClankerTracker"]
+        ),
+        .testTarget(
             name: "ClankerCoreTests",
             dependencies: ["ClankerCore"],
             resources: [.copy("Fixtures")]

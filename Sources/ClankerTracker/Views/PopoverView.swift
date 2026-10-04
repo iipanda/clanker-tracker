@@ -8,7 +8,11 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(Tool.allCases.enumerated()), id: \.element) { i, tool in
+            if model.trackedTools.isEmpty {
+                Text("No enabled providers installed. Manage providers in Settings.")
+                    .font(.caption).foregroundStyle(.secondary).padding(10)
+            }
+            ForEach(Array(model.trackedTools.enumerated()), id: \.element) { i, tool in
                 if i > 0 { Divider().padding(.horizontal, 10) }
                 ToolSection(tool: tool, model: model)
             }

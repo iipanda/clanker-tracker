@@ -127,6 +127,13 @@ is within about 1% overall, the difference coming from how forked sub-agent sess
 
 ## Where the data comes from
 
+Each provider has an **Enabled** switch in Settings. Only enabled providers with an installed agent
+appear in usage panels, spend totals, the menu bar and alerts. Installation checks look for the CLI
+on PATH or in common local install locations, or the provider's app in `/Applications` or
+`~/Applications`; saved logs and credentials alone do not count. Disabling a provider keeps its
+saved history so it can be restored when enabled again. API-check switches control remote updates
+separately. An existing Cursor API-check opt-out is preserved as a disabled provider on upgrade.
+
 | Tool | Source | Updates |
 | --- | --- | --- |
 | **Codex** | Every model response writes a `token_count` event with `rate_limits` (the server's `used_percent`, window length and `resets_at`) to `~/.codex/sessions/**/rollout-*.jsonl`. | Within a second or two of each Codex response on this Mac. |

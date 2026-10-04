@@ -48,17 +48,21 @@ struct SettingsView: View {
             }
 
             Section {
+                providerSwitch(.codex)
                 LabeledContent("Session logs", value: tilde(model.engine.paths.codexSessions.path))
+                    .disabled(!model.trackedTools.contains(.codex))
             } header: {
                 sourceHeader(.codex, waiting: "No readings yet")
             }
             Section {
-                claudeSource
+                providerSwitch(.claude)
+                claudeSource.disabled(!model.trackedTools.contains(.claude))
             } header: {
                 sourceHeader(.claude, waiting: "Waiting for Claude Code")
             }
             Section {
-                cursorSource
+                providerSwitch(.cursor)
+                cursorSource.disabled(!model.trackedTools.contains(.cursor))
             } header: {
                 sourceHeader(.cursor, waiting: model.settings.checkCursorUsage ? "Waiting for Cursor" : "Checks off")
             }
@@ -84,6 +88,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(maxWidth: 680)
         .onAppear {
+            model.refreshInstalledAgents()
             model.refreshHookState()
             openAtLogin = LoginItem.isEnabled
             Task { await notifier.refreshAuthorization() }
@@ -140,11 +145,26 @@ struct SettingsView: View {
         .disabled(!model.settings.checkCursorUsage)
     }
 
+    private func providerSwitch(_ tool: Tool) -> some View {
+        Toggle(isOn: Binding(get: { model.settings.isEnabled(tool) }, set: { model.setProviderEnabled($0, for: tool) })) {
+            Text("Enabled")
+            Text(model.installedTools.contains(tool)
+                 ? "Show usage, limits and alerts for \(tool.displayName)."
+                 : "Agent not installed. Usage appears after installation.")
+        }
+    }
+
     private func sourceHeader(_ tool: Tool, waiting: String) -> some View {
         HStack {
             Text(tool.displayName)
             Spacer()
-            connection(model.lastSeen(tool), waiting: waiting)
+            if !model.settings.isEnabled(tool) {
+                Text("Disabled").font(.caption).foregroundStyle(.secondary)
+            } else if !model.installedTools.contains(tool) {
+                Text("Not installed").font(.caption).foregroundStyle(.secondary)
+            } else {
+                connection(model.lastSeen(tool), waiting: waiting)
+            }
         }
     }
 

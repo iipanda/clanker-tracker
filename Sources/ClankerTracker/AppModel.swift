@@ -84,7 +84,7 @@ final class AppSettings {
         }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     var menuBarMode: MenuBarMode { didSet { defaults.set(menuBarMode.rawValue, forKey: "menuBarMode") } }
     var notifyRunout: Bool { didSet { defaults.set(notifyRunout, forKey: "notifyRunout") } }
@@ -93,6 +93,9 @@ final class AppSettings {
     var notifyReset: Bool { didSet { defaults.set(notifyReset, forKey: "notifyReset") } }
     var notifySpikes: Bool { didSet { defaults.set(notifySpikes, forKey: "notifySpikes") } }
     var refreshSeconds: Int { didSet { defaults.set(refreshSeconds, forKey: "refreshSeconds") } }
+    var claudeEnabled: Bool { didSet { defaults.set(claudeEnabled, forKey: "claudeEnabled") } }
+    var codexEnabled: Bool { didSet { defaults.set(codexEnabled, forKey: "codexEnabled") } }
+    var cursorEnabled: Bool { didSet { defaults.set(cursorEnabled, forKey: "cursorEnabled") } }
     /// On by default: check limits with Anthropic using Claude Code's login (for Fable and when Claude Code is idle).
     var checkUsage: Bool { didSet { defaults.set(checkUsage, forKey: "checkUsage") } }
     /// On by default: check Cursor Agent plan usage and spend using the agent CLI login from the Keychain.
@@ -100,10 +103,16 @@ final class AppSettings {
     /// Opt-in: the Grok Bot weekly limit, and Grok Bot requests in spend.
     var trackGrokBot: Bool { didSet { defaults.set(trackGrokBot, forKey: "trackGrokBot") } }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        // Migrate the old Cursor opt-out once; later API-check changes are independent.
+        if defaults.object(forKey: "cursorEnabled") == nil {
+            defaults.set(defaults.object(forKey: "checkCursorUsage") as? Bool ?? true, forKey: "cursorEnabled")
+        }
         defaults.register(defaults: [
             "menuBarMode": MenuBarMode.tightest.rawValue, "notifyRunout": true, "notifyThreshold": true,
             "threshold": 80, "notifyReset": false, "notifySpikes": true, "refreshSeconds": 60,
+            "claudeEnabled": true, "codexEnabled": true,
             "checkUsage": true, "checkCursorUsage": true, "trackGrokBot": false,
         ])
         menuBarMode = MenuBarMode(rawValue: defaults.string(forKey: "menuBarMode") ?? "") ?? .tightest
@@ -113,9 +122,28 @@ final class AppSettings {
         notifyReset = defaults.bool(forKey: "notifyReset")
         notifySpikes = defaults.bool(forKey: "notifySpikes")
         refreshSeconds = max(15, defaults.integer(forKey: "refreshSeconds"))
+        claudeEnabled = defaults.bool(forKey: "claudeEnabled")
+        codexEnabled = defaults.bool(forKey: "codexEnabled")
+        cursorEnabled = defaults.bool(forKey: "cursorEnabled")
         checkUsage = defaults.bool(forKey: "checkUsage")
         checkCursorUsage = defaults.bool(forKey: "checkCursorUsage")
         trackGrokBot = defaults.bool(forKey: "trackGrokBot")
+    }
+
+    func isEnabled(_ tool: Tool) -> Bool {
+        switch tool {
+        case .claude: claudeEnabled
+        case .codex: codexEnabled
+        case .cursor: cursorEnabled
+        }
+    }
+
+    func setEnabled(_ enabled: Bool, for tool: Tool) {
+        switch tool {
+        case .claude: claudeEnabled = enabled
+        case .codex: codexEnabled = enabled
+        case .cursor: cursorEnabled = enabled
+        }
     }
 
     var notificationPrefs: NotificationPrefs {
@@ -146,16 +174,22 @@ final class AppModel {
     var pane: Pane? = .overview
     /// The ended window each tool's card shows instead of the current one, by window id.
     var browsing: [Tool: String] = [:]
-    let settings = AppSettings()
+    let settings: AppSettings
     let isDemo: Bool
+    private(set) var installedTools: Set<Tool>
+    @ObservationIgnored private let detectAgents: () -> Set<Tool>
 
     @ObservationIgnored let engine: Engine
     @ObservationIgnored var onUpdate: ((_ isInitialLoad: Bool) -> Void)?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
-    init(engine: Engine = Engine(), demo: Bool = false) {
+    init(engine: Engine = Engine(), demo: Bool = false, settings: AppSettings = AppSettings(), detectAgents: (() -> Set<Tool>)? = nil) {
         self.engine = engine
         isDemo = demo
+        self.settings = settings
+        let detector = detectAgents ?? (demo ? { Set(Tool.allCases) } : { InstalledAgents.detect() })
+        self.detectAgents = detector
+        installedTools = detector()
     }
 
     func start() {
@@ -182,8 +216,8 @@ final class AppModel {
                 self.onUpdate?(update.backfill != nil)
             }
         })
-        let checkUsage = settings.checkUsage
-        let checkCursor = settings.checkCursorUsage
+        let checkUsage = shouldCheckUsage
+        let checkCursor = shouldCheckCursor
         let grokBot = settings.trackGrokBot
         tasks.append(Task { [engine] in
             await engine.start()
@@ -201,23 +235,47 @@ final class AppModel {
             while !Task.isCancelled {
                 let seconds = self?.settings.refreshSeconds ?? 60
                 try? await Task.sleep(for: .seconds(seconds))
+                self?.refreshInstalledAgents()
                 await engine.refresh()
                 self?.refreshHookState()
             }
         })
     }
 
+    private var shouldCheckUsage: Bool { trackedTools.contains(.claude) && settings.checkUsage }
+    private var shouldCheckCursor: Bool { trackedTools.contains(.cursor) && settings.checkCursorUsage }
+
+    private func syncUsageChecks() {
+        guard !isDemo else { return }
+        Task { [weak self, engine] in
+            guard let self else { return }
+            await engine.setUsageChecks(enabled: self.shouldCheckUsage)
+            await engine.setCursorChecks(enabled: self.shouldCheckCursor, grokBot: self.settings.trackGrokBot)
+        }
+    }
+
+    func setProviderEnabled(_ enabled: Bool, for tool: Tool) {
+        settings.setEnabled(enabled, for: tool)
+        applyTracking()
+        syncUsageChecks()
+    }
+
+    func refreshInstalledAgents() {
+        let detected = detectAgents()
+        guard detected != installedTools else { return }
+        installedTools = detected
+        applyTracking()
+        syncUsageChecks()
+    }
+
     func setUsageChecks(_ enabled: Bool) {
         settings.checkUsage = enabled
-        guard !isDemo else { return }
-        Task { [engine] in await engine.setUsageChecks(enabled: enabled) }
+        syncUsageChecks()
     }
 
     func setCursorChecks(_ enabled: Bool) {
         settings.checkCursorUsage = enabled
-        guard !isDemo else { return }
-        let grokBot = settings.trackGrokBot
-        Task { [engine] in await engine.setCursorChecks(enabled: enabled, grokBot: grokBot) }
+        syncUsageChecks()
     }
 
     func setTrackGrokBot(_ enabled: Bool) {
@@ -227,17 +285,23 @@ final class AppModel {
         }
         applyTracking()
         guard !isDemo else { return }
-        let checks = settings.checkCursorUsage
-        Task { [engine] in await engine.setCursorChecks(enabled: checks, grokBot: enabled) }
+        syncUsageChecks()
     }
 
-    /// The engine's data without the Grok Bot limit and Grok Bot spend unless they're tracked.
+    /// Keep disabled sources out of the UI and alerts while preserving their recorded data.
     private func applyTracking() {
         recorded = engineHistory
         spend = engineSpend
+        let tools = Set(trackedTools)
+        recorded.windows.removeAll { !tools.contains($0.tool) }
+        recorded.plans = recorded.plans.filter { key, _ in Tool(rawValue: key).map { tools.contains($0) } ?? false }
+        recorded.heartbeats = recorded.heartbeats.filter { key, _ in Tool(rawValue: key).map { tools.contains($0) } ?? false }
+        spend = spend.filter { tools.contains($0.tool) }
+        browsing = browsing.filter { tools.contains($0.key) }
+        if case .tool(let tool) = pane, !tools.contains(tool) { pane = .overview }
         if !settings.trackGrokBot {
             recorded.windows.removeAll { $0.tool == .cursor && $0.scope == CursorUsageAPI.grokBotScope }
-            spend = engineSpend.filter { !($0.tool == .cursor && CursorUsageAPI.isGrokBotModel($0.model)) }
+            spend = spend.filter { !($0.tool == .cursor && CursorUsageAPI.isGrokBotModel($0.model)) }
         }
         updateEstimates()
     }
@@ -248,6 +312,7 @@ final class AppModel {
     }
 
     func refresh() {
+        refreshInstalledAgents()
         refreshHookState()
         guard !isDemo else { now = Date(); return }
         Task { [engine] in await engine.refresh() }
@@ -259,6 +324,8 @@ final class AppModel {
     }
 
     // MARK: Derived
+
+    var trackedTools: [Tool] { Tool.allCases.filter { settings.isEnabled($0) && installedTools.contains($0) } }
 
     func forecasts(_ tool: Tool) -> [Forecast] { history.currentForecasts(for: tool, now: now) }
     var allForecasts: [Forecast] { history.currentForecasts(now: now) }

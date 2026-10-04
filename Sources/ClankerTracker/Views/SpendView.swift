@@ -25,6 +25,9 @@ struct SpendView: View {
         .padding(24)
         .onChange(of: period) { selected = nil }
         .onChange(of: toolFilter) { selected = nil }
+        .onChange(of: model.trackedTools) {
+            if let toolFilter, !model.trackedTools.contains(toolFilter) { self.toolFilter = nil }
+        }
     }
 
     private func selectedInterval(_ periods: [DateInterval]) -> DateInterval {
@@ -41,9 +44,9 @@ struct SpendView: View {
             WindowSwitch(options: SpendPeriod.allCases.enumerated().map { ($0.offset, $0.element.title) },
                          selection: SpendPeriod.allCases.firstIndex(of: period) ?? 1) { period = SpendPeriod.allCases[$0] }
             Spacer()
-            WindowSwitch(options: [(0, "All")] + Tool.allCases.enumerated().map { ($0.offset + 1, $0.element.displayName) },
-                         selection: toolFilter.flatMap { Tool.allCases.firstIndex(of: $0) }.map { $0 + 1 } ?? 0) {
-                toolFilter = $0 == 0 ? nil : Tool.allCases[$0 - 1]
+            WindowSwitch(options: [(0, "All")] + model.trackedTools.enumerated().map { ($0.offset + 1, $0.element.displayName) },
+                         selection: toolFilter.flatMap { model.trackedTools.firstIndex(of: $0) }.map { $0 + 1 } ?? 0) {
+                toolFilter = $0 == 0 ? nil : model.trackedTools[$0 - 1]
             }
         }
     }
@@ -60,7 +63,7 @@ struct SpendView: View {
         HStack(alignment: .top, spacing: 16) {
             tile(period.name(current, now: model.now), Fmt.usd(now.usd), detail: change(now.usd, before?.usd, inProgress: inProgress))
             if toolFilter == nil {
-                ForEach(Tool.allCases) { tool in
+                ForEach(model.trackedTools) { tool in
                     let s = model.summary(tool, current)
                     tile(tool.displayName, Fmt.usd(s.usd), detail: share(s.usd, of: now.usd))
                 }
@@ -106,7 +109,7 @@ struct SpendView: View {
 
     private func chart(_ periods: [DateInterval], selected current: DateInterval) -> some View {
         let bars = periods.flatMap { p in
-            (toolFilter.map { [$0] } ?? Tool.allCases).map { tool in
+            (toolFilter.map { [$0] } ?? model.trackedTools).map { tool in
                 let usd = model.summary(tool, p).usd
                 return Bar(period: p, key: key(p), tool: tool, usd: usd)
             }

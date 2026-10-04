@@ -84,7 +84,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             title = styled(" " + text, state)
         case .both:
             let parts = NSMutableAttributedString()
-            for (i, tool) in Tool.allCases.enumerated() {
+            for (i, tool) in model.trackedTools.enumerated() {
                 let f = model.tightest(tool)
                 if i > 0 { parts.append(styled(" · ", .calm, secondary: true)) }
                 parts.append(styled((i == 0 ? " " : "") + (f.map { Fmt.pct($0.used) } ?? "–"), LimitState(f)))
