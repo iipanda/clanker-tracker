@@ -105,6 +105,8 @@ public actor Engine {
     private var cursorChecksEnabled = false
     /// Whether Cursor checks also read the Grok Bot weekly limit.
     private var cursorGrokBot = false
+    private var checkingUsage = false
+    private var checkingCursor = false
     private let usageAPI: ClaudeUsageAPI
     private let cursorAPI: CursorUsageAPI
 
@@ -145,17 +147,18 @@ public actor Engine {
         }
     }
 
-    /// Re-reads everything that changed since the last read.
-    public func refresh() async {
+    /// Re-reads local logs, then starts independent remote checks. A slow provider must not hold
+    /// the app's polling loop open: polling also recovers changes missed by file notifications.
+    public func refresh(now: Date = Date()) async {
         refreshCodex(changed: nil)
         refreshTranscripts(changed: nil)
         bootstrapClaude()
         readClaude()
         publish()
         scheduleSave()
-        await refreshPricesIfNeeded()
-        await checkUsageIfDue()
-        await checkCursorIfDue()
+        Task { await refreshPricesIfNeeded() }
+        Task { await checkUsageIfDue(now: now) }
+        Task { await checkCursorIfDue(now: now) }
     }
 
     public func setUsageChecks(enabled: Bool) async {
@@ -171,12 +174,14 @@ public actor Engine {
 
     /// Checks limits with Anthropic when enabled and due (see `ClaudeUsageAPI.shouldCheck`).
     public func checkUsageIfDue(now: Date = Date()) async {
-        guard usageChecksEnabled, backfill == nil else { return }
+        guard usageChecksEnabled, backfill == nil, !checkingUsage else { return }
         let newestScoped = history.windows.filter { $0.tool == .claude && $0.scope != nil }.map(\.lastSeen).max()
         guard ClaudeUsageAPI.shouldCheck(now: now, lastCheck: state.usageCheckAt, lastResponse: state.lastClaudeResponse,
                                          lastStatusLine: history.heartbeats[Tool.claude.rawValue],
                                          newestScopedReading: newestScoped, backoffUntil: state.usageBackoffUntil)
         else { return }
+        checkingUsage = true
+        defer { checkingUsage = false }
         state.usageCheckAt = now
         let response = await usageAPI.fetch(now: now)
         history.add(contentsOf: response.samples)
@@ -194,10 +199,12 @@ public actor Engine {
 
     /// Checks Cursor plan usage and spend when enabled and due (see `CursorUsageAPI`).
     public func checkCursorIfDue(now: Date = Date(), force: Bool = false) async {
-        guard cursorChecksEnabled, backfill == nil else { return }
+        guard cursorChecksEnabled, backfill == nil, !checkingCursor else { return }
         guard CursorUsageAPI.shouldCheck(now: now, lastCheck: state.cursorCheckAt,
                                          backoffUntil: state.cursorBackoffUntil, force: force)
         else { return }
+        checkingCursor = true
+        defer { checkingCursor = false }
         state.cursorCheckAt = now
         // Overlap so a request that landed during the previous page isn't missed; dedupe keys drop repeats.
         let spendFrom = state.cursorSpendThrough?.addingTimeInterval(-2 * 3600)

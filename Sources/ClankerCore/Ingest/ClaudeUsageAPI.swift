@@ -95,21 +95,9 @@ public struct ClaudeUsageAPI: Sendable {
         return Credentials(accessToken: token, expiresAt: ClaudeParser.date(oauth["expiresAt"]))
     }
 
-    /// Runs a command and returns its output, or nil if it fails or takes over 30 s (e.g. an unanswered
-    /// Keychain prompt).
-    static func run(_ path: String, _ arguments: [String]) async -> Data? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 30) { if process.isRunning { process.terminate() } }
-        // Read while it runs, so a large output can't fill the pipe and stall it.
-        let data = await Task.detached { out.fileHandleForReading.readDataToEndOfFile() }.value
-        process.waitUntilExit()
-        return process.terminationStatus == 0 && process.terminationReason == .exit ? data : nil
+    /// Bounds the whole credential command, including process exit and stdout EOF.
+    static func run(_ path: String, _ arguments: [String], timeout: TimeInterval = 30) async -> Data? {
+        await CommandRunner.run(path, arguments, timeout: timeout)
     }
 
     /// Whether to check now: every 5 minutes while Claude Code is answering but its status line isn't
